@@ -13,6 +13,19 @@ venv/
 .pytest_cache/
 *.egg-info/
 
+# Banco local de dev
+*.db
+*.sqlite
+test.db
+canmos_dev.db
+
+# Storage local de dev
+backend/local_storage/
+
+# Coverage
+.coverage
+htmlcov/
+
 # Node
 node_modules/
 .next/
