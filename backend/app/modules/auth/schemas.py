@@ -1,8 +1,9 @@
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, field_validator, ConfigDict
 import re
 
 
 class RegisterRequest(BaseModel):
+    model_config = ConfigDict()
     nome: str
     email: EmailStr
     senha: str
