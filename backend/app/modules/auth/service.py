@@ -1,3 +1,4 @@
+import threading
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.shared.models import User, UserProfile
@@ -28,11 +29,24 @@ def register_user(data: RegisterRequest, db: Session) -> dict:
     db.commit()
     db.refresh(user)
 
+    # Email boas-vindas em background (não bloqueia o cadastro)
+    threading.Thread(
+        target=_send_welcome_email, args=(user.email, user.nome), daemon=True
+    ).start()
+
     return {
         "access_token": create_access_token(str(user.id)),
         "refresh_token": create_refresh_token(str(user.id)),
         "token_type": "bearer",
     }
+
+
+def _send_welcome_email(email: str, nome: str):
+    try:
+        from app.modules.email.service import send_welcome
+        send_welcome(email, nome)
+    except Exception:
+        pass  # Email falha silenciosamente — não afeta o cadastro
 
 
 def login_user(data: LoginRequest, db: Session) -> dict:

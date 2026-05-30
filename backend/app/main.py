@@ -12,6 +12,7 @@ from app.modules.documents.router import router as documents_router
 from app.modules.tax_engine.router import router as tax_router
 from app.modules.ai.router import router as ai_router
 from app.modules.payments.router import router as payments_router
+from app.modules.admin.router import router as admin_router
 
 
 @asynccontextmanager
@@ -48,6 +49,7 @@ app.include_router(documents_router,prefix=PREFIX)
 app.include_router(tax_router,      prefix=PREFIX)
 app.include_router(ai_router,       prefix=PREFIX)
 app.include_router(payments_router, prefix=PREFIX)
+app.include_router(admin_router,    prefix=PREFIX)
 
 # ── Health ────────────────────────────────────────────────────
 @app.get("/health", tags=["Health"])

@@ -5,6 +5,10 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
   },
+  // Turbopack root para paths com espaço (dev only)
+  turbopack: {
+    root: __dirname,
+  },
 };
 
 export default nextConfig;

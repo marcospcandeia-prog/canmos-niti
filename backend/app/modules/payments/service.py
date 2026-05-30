@@ -3,6 +3,7 @@ Serviço de pagamentos — Stripe.
 Fluxo: Checkout → Webhook → Ativação automática de plano.
 """
 import stripe
+import threading
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 from app.core.config import settings
@@ -99,6 +100,20 @@ def _on_checkout_completed(session: dict, db: Session):
         if not user.stripe_customer_id:
             user.stripe_customer_id = session.get("customer")
         db.commit()
+        # Email de confirmação em background
+        threading.Thread(
+            target=_send_payment_email,
+            args=(user.email, user.nome, plan_data["nome"]),
+            daemon=True,
+        ).start()
+
+
+def _send_payment_email(email: str, nome: str, plano: str):
+    try:
+        from app.modules.email.service import send_payment_confirmed
+        send_payment_confirmed(email, nome, plano, "")
+    except Exception:
+        pass
 
 
 def _on_subscription_updated(subscription: dict, db: Session):
