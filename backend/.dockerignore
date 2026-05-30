@@ -1,0 +1,14 @@
+__pycache__
+*.pyc
+*.pyo
+.env
+*.db
+.git
+.gitignore
+test.db
+tests/
+coverage_html/
+local_storage/
+.venv/
+venv/
+.pytest_cache/
