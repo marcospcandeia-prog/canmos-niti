@@ -1,0 +1,44 @@
+# Env
+.env
+.env.prod
+.env.local
+*.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# Node
+node_modules/
+.next/
+.turbo/
+out/
+dist/
+
+# Docker volumes
+postgres_data/
+minio_data/
+qdrant_data/
+ollama_data/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Logs
+*.log
+logs/
+
+# Uploads locais
+uploads/
+storage/

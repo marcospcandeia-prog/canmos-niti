@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls \"G:\\\\Meu Drive\\\\Cerebro-Obsidian\\\\Cerebro-Projetos\\\\\" 2>&1)",
+      "PowerShell(if \\($LASTEXITCODE -ne 0\\) { \"NO SETTINGS FILE\" })",
+      "WebFetch(domain:chatgpt.com)"
+    ]
+  }
+}

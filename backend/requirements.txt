@@ -1,0 +1,40 @@
+# Web Framework
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+python-multipart==0.0.12
+
+# Database
+sqlalchemy==2.0.36
+alembic==1.14.0
+psycopg2-binary==2.9.10
+
+# Auth & Security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+pydantic[email]==2.10.3
+pydantic-settings==2.6.1
+
+# Storage
+minio==7.2.11
+
+# AI
+langchain==0.3.9
+langchain-ollama==0.2.1
+langchain-community==0.3.9
+
+# Vector DB
+qdrant-client==1.12.1
+
+# HTTP Client
+httpx==0.28.0
+
+# Stripe
+stripe==11.2.0
+
+# Email
+resend==2.5.0
+
+# Utils
+python-dotenv==1.0.1
+aiofiles==24.1.0
+python-magic==0.4.27
