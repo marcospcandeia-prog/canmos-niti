@@ -1,104 +1,103 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
-from sqlalchemy import func, sum as sql_sum
-from app.core.database import get_db
+"""
+Dashboard Router
+Summary and metrics for user
+"""
+
+from fastapi import APIRouter, Depends, Query
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database.session import get_db
 from app.core.middleware.auth import get_current_user
-from app.shared.models import User, Document, TaxEvent, DocumentStatus, TaxCategory
+from app.shared.models.tax import Declaration
+from app.shared.models.document import Document
+from app.shared.models.tax import TaxEvent
+from app.shared.models.user import User
 
-router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
+router = APIRouter()
 
 
-@router.get("/summary")
-def get_summary(
+@router.get(
+    "/summary",
+    summary="Dashboard Summary",
+    description="Resumo geral do dashboard do usuário"
+)
+async def get_dashboard_summary(
+    ano_base: int = Query(2025, description="Ano base para filtros"),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    db: AsyncSession = Depends(get_db)
 ):
-    # Contagem de documentos
-    total_docs = db.query(func.count(Document.id)).filter(
-        Document.user_id == current_user.id
-    ).scalar() or 0
-
-    docs_processados = db.query(func.count(Document.id)).filter(
+    """
+    Get dashboard summary for user
+    
+    Returns:
+    - Restituição estimada
+    - Total documentos
+    - Total tax events
+    - Declarações
+    """
+    # Get declaration for year
+    stmt = select(Declaration).where(
+        Declaration.user_id == current_user.id,
+        Declaration.ano_base == ano_base
+    )
+    result = await db.execute(stmt)
+    declaration = result.scalar_one_or_none()
+    
+    # Count documents
+    stmt = select(func.count(Document.id)).where(Document.user_id == current_user.id)
+    result = await db.execute(stmt)
+    total_documents = result.scalar() or 0
+    
+    # Count processed documents
+    stmt = select(func.count(Document.id)).where(
         Document.user_id == current_user.id,
-        Document.status == DocumentStatus.TAX_EVENTS_CREATED,
-    ).scalar() or 0
-
-    # TAX_EVENTS — rendimentos tributáveis
-    rendimentos = db.query(func.sum(TaxEvent.valor)).filter(
+        Document.status == "processed"
+    )
+    result = await db.execute(stmt)
+    documents_processed = result.scalar() or 0
+    
+    # Count tax events for year
+    stmt = select(func.count(TaxEvent.id)).where(
         TaxEvent.user_id == current_user.id,
-        TaxEvent.categoria == TaxCategory.RENDIMENTO_TRIBUTAVEL,
-    ).scalar() or 0
-
-    # Retenções na fonte
-    retencoes = db.query(func.sum(TaxEvent.valor)).filter(
+        TaxEvent.competencia.like(f"{ano_base}-%")
+    )
+    result = await db.execute(stmt)
+    tax_events_count = result.scalar() or 0
+    
+    # Sum rendimentos
+    stmt = select(func.sum(TaxEvent.valor)).where(
         TaxEvent.user_id == current_user.id,
-        TaxEvent.categoria == TaxCategory.RETENCAO_FONTE,
-    ).scalar() or 0
-
-    # Deduções
-    deducoes_medicas = db.query(func.sum(TaxEvent.valor)).filter(
-        TaxEvent.user_id == current_user.id,
-        TaxEvent.categoria == TaxCategory.DEDUCAO_MEDICA,
-    ).scalar() or 0
-
-    # Restituição estimada (simplificado)
-    restituicao_estimada = float(retencoes) - _calcular_ir_devido(float(rendimentos), float(deducoes_medicas))
-
-    return {
-        "usuario": {
-            "nome": current_user.nome,
-            "plano": current_user.subscription_plan,
-        },
-        "documentos": {
-            "total": total_docs,
-            "processados": docs_processados,
-            "pendentes": total_docs - docs_processados,
-        },
-        "resumo_fiscal": {
-            "rendimentos_tributaveis": float(rendimentos),
-            "retencoes_fonte": float(retencoes),
-            "deducoes_medicas": float(deducoes_medicas),
-            "restituicao_estimada": round(restituicao_estimada, 2),
-            "status": _status_restituicao(restituicao_estimada),
-        },
-        "alertas": _gerar_alertas(total_docs, docs_processados),
+        TaxEvent.competencia.like(f"{ano_base}-%"),
+        TaxEvent.categoria == "rendimento_trabalho"
+    )
+    result = await db.execute(stmt)
+    total_rendimentos = result.scalar() or 0
+    
+    # Build summary
+    summary = {
+        "ano_base": ano_base,
+        "restituicao_estimada": float(declaration.restituicao_estimada) if declaration else 0.0,
+        "imposto_devido": float(declaration.imposto_devido) if declaration else 0.0,
+        "total_rendimentos": float(total_rendimentos),
+        "documentos_enviados": total_documents,
+        "documentos_processados": documents_processed,
+        "total_tax_events": tax_events_count,
+        "status_declaracao": declaration.status if declaration else None,
+        "alertas": []
     }
-
-
-def _calcular_ir_devido(rendimentos: float, deducoes: float) -> float:
-    """Motor tributário determinístico — tabela IRPF 2024."""
-    base_calculo = max(rendimentos - deducoes, 0)
-    # Tabela IRPF 2024 (mensal * 12 = anual)
-    if base_calculo <= 26963.20:
-        return 0
-    elif base_calculo <= 33919.80:
-        return base_calculo * 0.075 - 2023.74
-    elif base_calculo <= 45012.60:
-        return base_calculo * 0.15 - 4764.06
-    elif base_calculo <= 55976.16:
-        return base_calculo * 0.225 - 8148.39
-    else:
-        return base_calculo * 0.275 - 10956.47
-
-
-def _status_restituicao(valor: float) -> str:
-    if valor > 0:
-        return "restituicao"
-    elif valor < 0:
-        return "imposto_a_pagar"
-    return "zero"
-
-
-def _gerar_alertas(total: int, processados: int) -> list:
-    alertas = []
-    if total == 0:
-        alertas.append({
-            "tipo": "info",
-            "mensagem": "Envie seus documentos para iniciar a análise tributária"
+    
+    # Add alerts
+    if documents_processed < total_documents:
+        summary["alertas"].append({
+            "severidade": "info",
+            "mensagem": f"{total_documents - documents_processed} documento(s) aguardando processamento"
         })
-    elif total > processados:
-        alertas.append({
-            "tipo": "warning",
-            "mensagem": f"{total - processados} documento(s) aguardando processamento"
+    
+    if tax_events_count == 0:
+        summary["alertas"].append({
+            "severidade": "warning",
+            "mensagem": "Nenhum evento tributário encontrado. Envie seus documentos!"
         })
-    return alertas
+    
+    return summary

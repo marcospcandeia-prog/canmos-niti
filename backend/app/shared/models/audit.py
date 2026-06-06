@@ -1,30 +1,39 @@
-from sqlalchemy import JSON, Column, DateTime, String, Text
+"""
+Audit Log Model (LGPD Compliance)
+"""
 
-from app.core.database import Base
-from app.core.utils import generate_uuid, utc_now
+from sqlalchemy import Column, ForeignKey, Integer, String
+from sqlalchemy import JSON
+from sqlalchemy.orm import relationship
+
+from app.core.database.session import Base
+from app.shared.models.base import BaseModel, TimestampMixin
 
 
-class AuditLog(Base):
+class AuditLog(Base, BaseModel, TimestampMixin):
+    """Audit log for LGPD compliance and security tracking"""
+    
     __tablename__ = "audit_logs"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    user_id = Column(String, nullable=False, index=True)
-    action = Column(String(100), nullable=False)
-    entity = Column(String(100))
-    entity_id = Column(String(100))
-    metadata_json = Column(JSON)
-    ip_address = Column(String(45))
-    user_agent = Column(Text)
-    created_at = Column(DateTime(timezone=True), default=utc_now)
-
-
-class AiInteraction(Base):
-    __tablename__ = "ai_interactions"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    user_id = Column(String, nullable=False, index=True)
-    pergunta = Column(Text)
-    resposta = Column(Text)
-    modelo_ia = Column(String(50))
-    contexto = Column(JSON)
-    created_at = Column(DateTime(timezone=True), default=utc_now)
+    
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Nullable because some actions may not have user (e.g., system actions)
+    
+    # Action Details
+    action = Column(String(50), nullable=False, index=True)
+    # Actions: CREATE, UPDATE, DELETE, LOGIN, LOGOUT, UPLOAD, DOWNLOAD, EXPORT, etc
+    
+    # Entity Affected
+    entity = Column(String(100), nullable=True, index=True)
+    # Entities: users, documents, tax_events, declarations, etc
+    
+    entity_id = Column(Integer, nullable=True)
+    
+    # Additional Context (flexible JSON)
+    metadata_json = Column(JSON, nullable=True)
+    # Example: {"ip": "192.168.1.1", "user_agent": "...", "changes": {...}}
+    
+    # Relationship
+    user = relationship("User", back_populates="audit_logs")
+    
+    def __repr__(self) -> str:
+        return f"<AuditLog(id={self.id}, user_id={self.user_id}, action={self.action}, entity={self.entity})>"

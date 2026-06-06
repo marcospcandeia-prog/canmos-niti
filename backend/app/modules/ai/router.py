@@ -1,73 +1,139 @@
-from fastapi import APIRouter, Depends
-from fastapi.responses import StreamingResponse
-from sqlalchemy.orm import Session
-from pydantic import BaseModel
-from app.core.database import get_db
+import logging
+import uuid
+
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.core.database.session import get_db
 from app.core.middleware.auth import get_current_user
-from app.shared.models import User, AIInteraction, Document, TaxEvent
-from .service import chat_tributario, chat_tributario_stream, build_user_context
+from app.shared.models.user import User
+from app.shared.models.ai import AIInteraction
+from app.modules.ai.service import TaxAssistant
+from app.modules.ai.schemas import ChatRequest, ChatResponse, ConversationResponse, MessageResponse
 
-router = APIRouter(prefix="/ai", tags=["IA Tributária"])
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/ai", tags=["IA Assistente"])
+
+_assistant: TaxAssistant = None
 
 
-class ChatRequest(BaseModel):
-    pergunta: str
-    stream: bool = False
+def get_assistant() -> TaxAssistant:
+    global _assistant
+    if _assistant is None:
+        _assistant = TaxAssistant()
+    return _assistant
 
 
-@router.post("/chat")
-def chat(
-    req: ChatRequest,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+@router.post("/chat", response_model=ChatResponse)
+async def chat(
+    request: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    documents = db.query(Document).filter(Document.user_id == current_user.id).all()
-    tax_events = db.query(TaxEvent).filter(TaxEvent.user_id == current_user.id).all()
-    ctx, docs_resumo = build_user_context(current_user, tax_events, documents)
+    assistant = get_assistant()
+    conversation_id = request.conversation_id or str(uuid.uuid4())
 
-    if req.stream:
-        def generator():
-            resposta_completa = []
-            for token in chat_tributario_stream(req.pergunta, ctx, docs_resumo):
-                resposta_completa.append(token)
-                yield token
-            # Salvar no banco
-            _save_interaction(current_user.id, req.pergunta, "".join(resposta_completa), db)
+    result = await assistant.ask(request.mensagem, conversation_id)
 
-        return StreamingResponse(generator(), media_type="text/plain")
+    ai_interaction = AIInteraction(
+        user_id=current_user.id,
+        conversation_id=conversation_id,
+        pergunta=request.mensagem,
+        resposta=result["resposta"],
+        modelo_ia="llama3.2:3b",
+        fontes_consultadas="; ".join(result["fontes"]),
+    )
+    db.add(ai_interaction)
+    await db.commit()
 
-    resposta = chat_tributario(req.pergunta, ctx, docs_resumo)
-    _save_interaction(current_user.id, req.pergunta, resposta, db)
+    return ChatResponse(
+        resposta=result["resposta"],
+        conversation_id=conversation_id,
+        model="llama3.2:3b",
+        fontes=result["fontes"],
+    )
 
-    return {"resposta": resposta, "modelo": "ollama/" + __import__("app.core.config", fromlist=["settings"]).settings.OLLAMA_MODEL}
 
-
-@router.get("/history")
-def history(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+@router.get("/conversations", response_model=list[ConversationResponse])
+async def list_conversations(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
 ):
-    interactions = db.query(AIInteraction).filter(
-        AIInteraction.user_id == current_user.id
-    ).order_by(AIInteraction.created_at.desc()).limit(50).all()
+    stmt = (
+        select(AIInteraction.conversation_id, AIInteraction.created_at)
+        .where(AIInteraction.user_id == current_user.id)
+        .distinct()
+        .order_by(AIInteraction.created_at.desc())
+        .limit(20)
+    )
+    result = await db.execute(stmt)
+    conversations = result.all()
 
     return [
-        {
-            "id": str(i.id),
-            "pergunta": i.pergunta,
-            "resposta": i.resposta,
-            "created_at": i.created_at.isoformat(),
-        }
-        for i in interactions
+        ConversationResponse(
+            id=hash(c.conversation_id) % 1000000,
+            titulo=f"Conversa {i + 1}",
+            created_at=c.created_at,
+            updated_at=c.created_at,
+        )
+        for i, c in enumerate(conversations)
     ]
 
 
-def _save_interaction(user_id, pergunta: str, resposta: str, db: Session):
-    interaction = AIInteraction(
-        user_id=user_id,
-        pergunta=pergunta,
-        resposta=resposta,
-        modelo_ia=__import__("app.core.config", fromlist=["settings"]).settings.OLLAMA_MODEL,
+@router.get("/conversations/{conversation_id}/messages", response_model=list[MessageResponse])
+async def get_conversation_messages(
+    conversation_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    stmt = (
+        select(AIInteraction)
+        .where(
+            AIInteraction.user_id == current_user.id,
+            AIInteraction.conversation_id == conversation_id,
+        )
+        .order_by(AIInteraction.created_at.asc())
     )
-    db.add(interaction)
-    db.commit()
+    result = await db.execute(stmt)
+    interactions = result.scalars().all()
+
+    messages = []
+    for interaction in interactions:
+        messages.append(
+            MessageResponse(
+                id=interaction.id * 2 - 1,
+                conversation_id=hash(conversation_id) % 1000000,
+                role="user",
+                content=interaction.pergunta,
+                created_at=interaction.created_at,
+            )
+        )
+        messages.append(
+            MessageResponse(
+                id=interaction.id * 2,
+                conversation_id=hash(conversation_id) % 1000000,
+                role="assistant",
+                content=interaction.resposta,
+                created_at=interaction.created_at,
+            )
+        )
+
+    return messages
+
+
+@router.get("/health")
+async def health():
+    assistant = get_assistant()
+    status = await assistant.check_health()
+    return {"service": "ai", **status}
+
+
+@router.post("/clear")
+async def clear_history(
+    current_user: User = Depends(get_current_user)
+):
+    assistant = get_assistant()
+    assistant.histories.clear()
+    return {"mensagem": "Historico limpo"}

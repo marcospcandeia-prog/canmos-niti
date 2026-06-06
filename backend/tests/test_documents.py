@@ -1,147 +1,191 @@
-import io
+import hashlib
+import pytest
+from unittest.mock import MagicMock, patch
+from httpx import AsyncClient
+from sqlalchemy.ext.asyncio import AsyncSession
 
 
-class TestDocumentUpload:
-    def test_upload_success(self, client, auth_headers):
-        file_content = b"test document content"
-        response = client.post(
-            "/documents/upload",
-            headers=auth_headers,
-            files={"file": ("test.pdf", io.BytesIO(file_content), "application/pdf")},
-            data={"tipo": "infr"},
-        )
-        assert response.status_code == 201
-        data = response.json()
-        assert data["nome_original"] == "test.pdf"
-        assert data["status"] in ("pending", "processing", "completed")
-
-    def test_upload_without_auth(self, client):
-        file_content = b"test"
-        response = client.post(
-            "/documents/upload",
-            files={"file": ("test.pdf", io.BytesIO(file_content), "application/pdf")},
-        )
-        assert response.status_code == 401
+@pytest.fixture(autouse=True)
+def mock_minio():
+    """Mock MinIO service for all document tests"""
+    with patch('app.modules.documents.service.get_minio_service') as mock_get:
+        minio_mock = MagicMock()
+        minio_mock.calculate_file_hash.side_effect = lambda f: hashlib.sha256(f.read()).hexdigest()
+        minio_mock.generate_storage_path.return_value = "users/1/documents/test.pdf"
+        minio_mock.upload_file.return_value = None
+        minio_mock.delete_file.return_value = None
+        minio_mock.get_presigned_url.return_value = "https://minio.test/url"
+        mock_get.return_value = minio_mock
+        yield mock_get
 
 
-class TestDocumentList:
-    def test_list_documents_empty(self, client, auth_headers):
-        response = client.get("/documents", headers=auth_headers)
-        assert response.status_code == 200
-        assert response.json() == []
-
-    def test_list_documents_with_data(self, client, auth_headers):
-        client.post(
-            "/documents/upload",
-            headers=auth_headers,
-            files={"file": ("doc1.pdf", io.BytesIO(b"content1"), "application/pdf")},
-        )
-        client.post(
-            "/documents/upload",
-            headers=auth_headers,
-            files={"file": ("doc2.pdf", io.BytesIO(b"content2"), "application/pdf")},
-        )
-        response = client.get("/documents", headers=auth_headers)
-        assert response.status_code == 200
-        docs = response.json()
-        assert len(docs) == 2
+@pytest.mark.asyncio
+async def test_upload_unauthorized(client: AsyncClient):
+    response = await client.post(
+        "/documents/upload",
+        files={"file": ("test.pdf", b"content", "application/pdf")}
+    )
+    assert response.status_code == 401
 
 
-class TestDocumentDetail:
-    def test_get_detail_nonexistent(self, client, auth_headers):
-        response = client.get("/documents/nonexistent", headers=auth_headers)
-        assert response.status_code == 404
-
-    def test_get_detail_success(self, client, auth_headers):
-        upload_resp = client.post(
-            "/documents/upload",
-            headers=auth_headers,
-            files={"file": ("test.pdf", io.BytesIO(b"content"), "application/pdf")},
-        )
-        doc_id = upload_resp.json()["id"]
-
-        response = client.get(f"/documents/{doc_id}", headers=auth_headers)
-        assert response.status_code == 200
-        data = response.json()
-        assert data["id"] == doc_id
-        assert "ocr_result" in data
-        assert "tax_events" in data
+@pytest.mark.asyncio
+async def test_upload_success(auth_client: AsyncClient):
+    file_content = b"fake pdf content for testing"
+    response = await auth_client.post(
+        "/documents/upload",
+        files={"file": ("nota-fiscal.pdf", file_content, "application/pdf")}
+    )
+    assert response.status_code == 201
+    data = response.json()
+    assert data["nome_original"] == "nota-fiscal.pdf"
+    assert data["mime_type"] == "application/pdf"
+    assert data["status"] == "uploaded"
+    assert "id" in data
+    assert data["user_id"] is not None
 
 
-class TestDocumentDelete:
-    def test_delete_success(self, client, auth_headers):
-        upload_resp = client.post(
-            "/documents/upload",
-            headers=auth_headers,
-            files={"file": ("doc.pdf", io.BytesIO(b"content"), "application/pdf")},
-        )
-        doc_id = upload_resp.json()["id"]
-
-        response = client.delete(f"/documents/{doc_id}", headers=auth_headers)
-        assert response.status_code == 204
-
-        get_resp = client.get(f"/documents/{doc_id}", headers=auth_headers)
-        assert get_resp.status_code == 404
-
-    def test_delete_nonexistent(self, client, auth_headers):
-        response = client.delete("/documents/nonexistent", headers=auth_headers)
-        assert response.status_code == 404
-
-    def test_delete_other_user_document(self, client, test_user_data):
-        client.post("/auth/register", json=test_user_data)
-        login1 = client.post("/auth/login", json={
-            "email": test_user_data["email"],
-            "senha": test_user_data["senha"],
-        })
-        h1 = {"Authorization": f"Bearer {login1.json()['access_token']}"}
-
-        upload_resp = client.post(
-            "/documents/upload", headers=h1,
-            files={"file": ("doc.pdf", io.BytesIO(b"content"), "application/pdf")},
-        )
-        doc_id = upload_resp.json()["id"]
-
-        outro = {"nome": "Outro", "cpf": "99571750255", "email": "outro@email.com", "senha": "senha456"}
-        client.post("/auth/register", json=outro)
-        login2 = client.post("/auth/login", json={"email": outro["email"], "senha": outro["senha"]})
-        h2 = {"Authorization": f"Bearer {login2.json()['access_token']}"}
-
-        response = client.delete(f"/documents/{doc_id}", headers=h2)
-        assert response.status_code == 404
-
-    def test_delete_without_auth(self, client):
-        response = client.delete("/documents/some-id")
-        assert response.status_code == 401
+@pytest.mark.asyncio
+async def test_upload_invalid_mime_type(auth_client: AsyncClient):
+    response = await auth_client.post(
+        "/documents/upload",
+        files={"file": ("script.exe", b"bad", "application/x-msdownload")}
+    )
+    assert response.status_code == 400
+    assert "não suportado" in response.json()["detail"]
 
 
-class TestDocumentIsolation:
-    def test_user_cannot_access_other_document(self, client, test_user_data):
-        client.post("/auth/register", json=test_user_data)
-        login1 = client.post("/auth/login", json={
-            "email": test_user_data["email"],
-            "senha": test_user_data["senha"],
-        })
-        headers1 = {"Authorization": f"Bearer {login1.json()['access_token']}"}
+@pytest.mark.asyncio
+async def test_upload_empty_file(auth_client: AsyncClient):
+    response = await auth_client.post(
+        "/documents/upload",
+        files={"file": ("vazio.pdf", b"", "application/pdf")}
+    )
+    assert response.status_code == 400
+    assert "vazio" in response.json()["detail"]
 
-        upload_resp = client.post(
-            "/documents/upload",
-            headers=headers1,
-            files={"file": ("doc.pdf", io.BytesIO(b"content"), "application/pdf")},
-        )
-        doc_id = upload_resp.json()["id"]
 
-        outro_user = {
-            "nome": "Outro User",
-            "cpf": "99571750255",
-            "email": "outro@email.com",
-            "senha": "senha456",
-        }
-        client.post("/auth/register", json=outro_user)
-        login2 = client.post("/auth/login", json={
-            "email": outro_user["email"],
-            "senha": outro_user["senha"],
-        })
-        headers2 = {"Authorization": f"Bearer {login2.json()['access_token']}"}
+@pytest.mark.asyncio
+async def test_list_unauthorized(client: AsyncClient):
+    response = await client.get("/documents")
+    assert response.status_code == 401
 
-        response = client.get(f"/documents/{doc_id}", headers=headers2)
-        assert response.status_code == 404
+
+@pytest.mark.asyncio
+async def test_list_documents_empty(auth_client: AsyncClient):
+    response = await auth_client.get("/documents")
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+@pytest.mark.asyncio
+async def test_list_documents_after_upload(auth_client: AsyncClient):
+    await auth_client.post(
+        "/documents/upload",
+        files={"file": ("doc1.pdf", b"content1", "application/pdf")}
+    )
+    await auth_client.post(
+        "/documents/upload",
+        files={"file": ("doc2.png", b"content2", "image/png")}
+    )
+
+    response = await auth_client.get("/documents")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 2
+    names = [d["nome_original"] for d in data]
+    assert "doc1.pdf" in names
+    assert "doc2.png" in names
+
+
+@pytest.mark.asyncio
+async def test_get_document_by_id(auth_client: AsyncClient):
+    upload_resp = await auth_client.post(
+        "/documents/upload",
+        files={"file": ("find-me.pdf", b"content", "application/pdf")}
+    )
+    doc_id = upload_resp.json()["id"]
+
+    response = await auth_client.get(f"/documents/{doc_id}")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["id"] == doc_id
+    assert data["nome_original"] == "find-me.pdf"
+
+
+@pytest.mark.asyncio
+async def test_get_document_not_found(auth_client: AsyncClient):
+    response = await auth_client.get("/documents/99999")
+    assert response.status_code == 404
+    assert "não encontrado" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_delete_document(auth_client: AsyncClient):
+    upload_resp = await auth_client.post(
+        "/documents/upload",
+        files={"file": ("delete-me.pdf", b"content", "application/pdf")}
+    )
+    doc_id = upload_resp.json()["id"]
+
+    response = await auth_client.delete(f"/documents/{doc_id}")
+    assert response.status_code == 200
+    assert "sucesso" in response.json()["message"]
+
+    get_response = await auth_client.get(f"/documents/{doc_id}")
+    assert get_response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_delete_document_not_found(auth_client: AsyncClient):
+    response = await auth_client.delete("/documents/99999")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_download_url(auth_client: AsyncClient):
+    upload_resp = await auth_client.post(
+        "/documents/upload",
+        files={"file": ("download-me.pdf", b"content", "application/pdf")}
+    )
+    doc_id = upload_resp.json()["id"]
+
+    response = await auth_client.get(f"/documents/{doc_id}/download")
+    assert response.status_code == 200
+    data = response.json()
+    assert "download_url" in data
+    assert data["download_url"] == "https://minio.test/url"
+    assert data["expires_in"] == 3600
+
+
+@pytest.mark.asyncio
+async def test_get_download_url_not_found(auth_client: AsyncClient):
+    response = await auth_client.get("/documents/99999/download")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_get_stats_empty(auth_client: AsyncClient):
+    response = await auth_client.get("/documents/stats")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 0
+    assert data["uploaded"] == 0
+    assert data["by_type"] == {}
+
+
+@pytest.mark.asyncio
+async def test_get_stats_with_documents(auth_client: AsyncClient):
+    await auth_client.post(
+        "/documents/upload",
+        files={"file": ("doc1.pdf", b"content1", "application/pdf")}
+    )
+    await auth_client.post(
+        "/documents/upload",
+        files={"file": ("doc2.png", b"content2", "image/png")}
+    )
+
+    response = await auth_client.get("/documents/stats")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 2
+    assert data["uploaded"] == 2

@@ -1,104 +1,139 @@
-version: "3.9"
-
-# Docker Compose para PRODUÇÃO
-# Uso: docker compose -f docker-compose.prod.yml up -d
+version: '3.8'
 
 services:
+  # Nginx Reverse Proxy
   nginx:
     image: nginx:alpine
+    container_name: canmos-nginx-prod
     ports:
       - "80:80"
-      - "443:443"
     volumes:
-      - ./infra/nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./infra/nginx/ssl:/etc/nginx/ssl:ro
+      - ./infra/nginx/nginx.conf:/etc/nginx/conf.d/default.conf
     depends_on:
-      - frontend
       - backend
+      - frontend
     networks:
-      - canmos-net
+      - canmos-network
     restart: always
 
-  frontend:
-    image: canmos-niti-frontend:latest
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-    environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=${APP_URL}
-    networks:
-      - canmos-net
-    restart: always
-
+  # Backend FastAPI (Production)
   backend:
-    image: canmos-niti-backend:latest
     build:
       context: ./backend
-      dockerfile: Dockerfile
-    env_file:
-      - .env.prod
+      dockerfile: ../infra/docker/Dockerfile.backend.prod
+    container_name: canmos-backend-prod
     environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
+      - SUPABASE_SERVICE_ROLE=${SUPABASE_SERVICE_ROLE}
+      - JWT_SECRET=${JWT_SECRET}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - OLLAMA_HOST=http://ollama:11434
+      - QDRANT_HOST=http://qdrant:6333
       - APP_ENV=production
-      - APP_DEBUG=false
+      - DEBUG=False
     depends_on:
-      postgres:
-        condition: service_healthy
+      - minio
+      - qdrant
+      - ollama
     networks:
-      - canmos-net
+      - canmos-network
     restart: always
-
-  postgres:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
-      POSTGRES_DB: ${DB_NAME}
-    volumes:
-      - postgres_prod:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Frontend Next.js (Production)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: ../infra/docker/Dockerfile.frontend.prod
+    container_name: canmos-frontend-prod
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NODE_ENV=production
+    depends_on:
+      - backend
     networks:
-      - canmos-net
+      - canmos-network
     restart: always
 
+  # MinIO Storage
   minio:
     image: minio/minio:latest
-    command: server /data --console-address ":9001"
+    container_name: canmos-minio-prod
     environment:
-      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
-      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      - MINIO_ROOT_USER=${MINIO_ACCESS_KEY}
+      - MINIO_ROOT_PASSWORD=${MINIO_SECRET_KEY}
     volumes:
-      - minio_prod:/data
+      - minio-data:/data
+    command: server /data --console-address ":9001"
     networks:
-      - canmos-net
+      - canmos-network
     restart: always
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
 
+  # Qdrant Vector Database
   qdrant:
     image: qdrant/qdrant:latest
+    container_name: canmos-qdrant-prod
     volumes:
-      - qdrant_prod:/qdrant/storage
+      - qdrant-data:/qdrant/storage
     networks:
-      - canmos-net
+      - canmos-network
     restart: always
 
+  # Ollama Local AI
   ollama:
     image: ollama/ollama:latest
+    container_name: canmos-ollama-prod
+    environment:
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-phi3:mini}
     volumes:
-      - ollama_prod:/root/.ollama
+      - ollama-data:/root/.ollama
+      - ./infra/docker/entrypoint-ollama.sh:/entrypoint.sh
+    entrypoint: ["/bin/bash", "/entrypoint.sh"]
     networks:
-      - canmos-net
+      - canmos-network
     restart: always
 
-volumes:
-  postgres_prod:
-  minio_prod:
-  qdrant_prod:
-  ollama_prod:
+  # OCR Service Worker
+  ocr-service:
+    build:
+      context: ./backend
+      dockerfile: ../infra/docker/Dockerfile.ocr
+    container_name: canmos-ocr-prod
+    profiles:
+      - ocr
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+    depends_on:
+      - minio
+    networks:
+      - canmos-network
+    restart: always
 
 networks:
-  canmos-net:
+  canmos-network:
     driver: bridge
+
+volumes:
+  minio-data:
+    driver: local
+  qdrant-data:
+    driver: local
+  ollama-data:
+    driver: local

@@ -1,0 +1,55 @@
+services:
+  - type: web
+    name: canmos-backend
+    runtime: python
+    repo: https://github.com/[seu-usuario]/canmos-niti
+    region: ohio
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DEBUG
+        value: false
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        sync: false
+      - key: MINIO_ENDPOINT
+        sync: false
+      - key: MINIO_ACCESS_KEY
+        sync: false
+      - key: MINIO_SECRET_KEY
+        sync: false
+      - key: MINIO_BUCKET
+        value: canmos-prod
+      - key: MINIO_SECURE
+        value: true
+      - key: OLLAMA_HOST
+        value: http://ollama:11434
+      - key: OLLAMA_MODEL
+        value: phi3:mini
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE
+        sync: false
+
+  - type: web
+    name: canmos-frontend
+    runtime: node
+    repo: https://github.com/[seu-usuario]/canmos-niti
+    region: ohio
+    plan: free
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        sync: false

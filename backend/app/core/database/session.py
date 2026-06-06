@@ -1,22 +1,54 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
-from app.core.config import settings
+"""
+Database Session Management
+Async SQLAlchemy session for Supabase PostgreSQL
+"""
 
-engine = create_engine(
+from typing import AsyncGenerator
+
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.orm import declarative_base
+
+from app.core.config.settings import get_settings
+
+settings = get_settings()
+
+# Create async engine
+_is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+engine_kwargs = {"pool_size": 10, "max_overflow": 20}
+if _is_sqlite:
+    engine_kwargs = {"connect_args": {"check_same_thread": False}}
+engine = create_async_engine(
     settings.DATABASE_URL,
-    pool_pre_ping=True,
-    pool_size=10,
-    max_overflow=20,
+    echo=settings.DEBUG,
+    future=True,
+    pool_pre_ping=not _is_sqlite,
+    **engine_kwargs,
 )
 
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# Create async session maker
+AsyncSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autocommit=False,
+    autoflush=False,
+)
 
+# Base class for models
 Base = declarative_base()
 
 
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Dependency function to get database session
+    Usage: db: AsyncSession = Depends(get_db)
+    """
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise
+        finally:
+            await session.close()

@@ -1,90 +1,111 @@
-"""
-Serviço de IA Tributária — Ollama + LangChain.
-A IA é copiloto: explica, orienta, resume.
-Nunca interfere no Tax Engine.
-"""
-from typing import Generator
-from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage, SystemMessage
-from app.core.config import settings
-from .prompts import SYSTEM_PROMPT_TRIBUTARIO
+import logging
+from typing import Optional
+
+from langchain_ollama import ChatOllama, OllamaEmbeddings
+
+from app.core.config.settings import get_settings
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
-def _build_llm(streaming: bool = False) -> ChatOllama:
-    return ChatOllama(
-        model=settings.OLLAMA_MODEL,
-        base_url=settings.OLLAMA_BASE_URL,
-        temperature=0.3,
-        streaming=streaming,
-    )
+_llm_instance = None
+_embeddings_instance = None
 
 
-def chat_tributario(
-    pergunta: str,
-    contexto_usuario: str = "",
-    documentos_resumo: str = "",
-) -> str:
-    """Resposta completa (não-streaming)."""
-    llm = _build_llm(streaming=False)
-
-    system = SYSTEM_PROMPT_TRIBUTARIO.format(
-        contexto_usuario=contexto_usuario or "Nenhum contexto disponível",
-        documentos_resumo=documentos_resumo or "Nenhum documento processado ainda",
-    )
-
-    messages = [
-        SystemMessage(content=system),
-        HumanMessage(content=pergunta),
-    ]
-
-    try:
-        response = llm.invoke(messages)
-        return response.content
-    except Exception as e:
-        return f"Serviço de IA temporariamente indisponível. Erro: {str(e)[:100]}"
+def get_llm():
+    global _llm_instance
+    if _llm_instance is None:
+        try:
+            _llm_instance = ChatOllama(
+                model=settings.OLLAMA_MODEL,
+                base_url=settings.OLLAMA_HOST,
+                temperature=0.3,
+                num_predict=2048,
+            )
+            logger.info(f"LLM initialized: {settings.OLLAMA_MODEL}")
+        except Exception as e:
+            logger.error(f"Failed to initialize LLM: {e}")
+            _llm_instance = None
+    return _llm_instance
 
 
-def chat_tributario_stream(
-    pergunta: str,
-    contexto_usuario: str = "",
-    documentos_resumo: str = "",
-) -> Generator[str, None, None]:
-    """Stream de tokens para resposta em tempo real."""
-    llm = _build_llm(streaming=True)
-
-    system = SYSTEM_PROMPT_TRIBUTARIO.format(
-        contexto_usuario=contexto_usuario or "Nenhum contexto disponível",
-        documentos_resumo=documentos_resumo or "Nenhum documento processado ainda",
-    )
-
-    messages = [
-        SystemMessage(content=system),
-        HumanMessage(content=pergunta),
-    ]
-
-    try:
-        for chunk in llm.stream(messages):
-            if chunk.content:
-                yield chunk.content
-    except Exception as e:
-        yield f"\n[Erro no serviço de IA: {str(e)[:100]}]"
+def get_embeddings():
+    global _embeddings_instance
+    if _embeddings_instance is None:
+        try:
+            _embeddings_instance = OllamaEmbeddings(
+                model=settings.OLLAMA_MODEL,
+                base_url=settings.OLLAMA_HOST,
+            )
+            logger.info("Embeddings initialized")
+        except Exception as e:
+            logger.error(f"Failed to initialize embeddings: {e}")
+            _embeddings_instance = None
+    return _embeddings_instance
 
 
-def build_user_context(user, tax_events: list, documents: list) -> tuple[str, str]:
-    """Constrói contexto do usuário para o prompt."""
-    ctx = f"Nome: {user.nome}\nPlano: {user.subscription_plan}"
-    if hasattr(user, "profile") and user.profile:
-        p = user.profile
-        ctx += f"\nProfissão: {p.profissao or 'não informada'}"
-        ctx += f"\nDependentes: {'sim' if p.possui_dependentes else 'não'}"
-        ctx += f"\nInvestimentos: {'sim' if p.possui_investimentos else 'não'}"
+SYSTEM_PROMPT = """Voce e um assistente especializado em imposto de renda brasileiro (IRPF).
+Regras:
+1. Responda sempre em portugues brasileiro
+2. Use linguagem clara e acessivel
+3. Se nao souber a resposta, diga que nao sabe
+4. Nao invente informacoes fiscais
+5. Mencione que e sempre bom consultar um contador para casos complexos
+6. Baseie suas respostas na legislacao brasileira vigente"""
 
-    docs_resumo = f"Documentos: {len(documents)} enviados\n"
-    if tax_events:
-        cats = {}
-        for e in tax_events:
-            cats[str(e.categoria)] = cats.get(str(e.categoria), 0) + float(e.valor)
-        for cat, total in cats.items():
-            docs_resumo += f"- {cat}: R$ {total:,.2f}\n"
 
-    return ctx, docs_resumo
+class TaxAssistant:
+
+    def __init__(self):
+        self.llm = get_llm()
+        self.histories: dict[str, list[dict]] = {}
+
+    def get_or_create_history(self, conversation_id: str) -> list[dict]:
+        if conversation_id not in self.histories:
+            self.histories[conversation_id] = []
+        return self.histories[conversation_id]
+
+    async def ask(self, mensagem: str, conversation_id: str) -> dict:
+        response = {
+            "resposta": "",
+            "fontes": [],
+            "conversation_id": conversation_id,
+        }
+
+        if self.llm is None:
+            response["resposta"] = "O assistente de IA nao esta disponivel no momento. Verifique se o Ollama esta em execucao."
+            return response
+
+        history = self.get_or_create_history(conversation_id)
+
+        messages = [("system", SYSTEM_PROMPT)]
+
+        for h in history[-6:]:
+            messages.append((h["role"], h["content"]))
+
+        messages.append(("human", mensagem))
+
+        try:
+            result = self.llm.invoke(messages)
+            resposta = result.content
+
+            history.append({"role": "human", "content": mensagem})
+            history.append({"role": "assistant", "content": resposta})
+
+            response["resposta"] = resposta
+        except Exception as e:
+            logger.error(f"LLM invocation error: {e}")
+            response["resposta"] = "Desculpe, ocorreu um erro ao processar sua pergunta. Tente novamente."
+
+        return response
+
+    async def check_health(self) -> dict:
+        llm_ok = self.llm is not None
+        if not llm_ok:
+            self.llm = get_llm()
+            llm_ok = self.llm is not None
+        return {
+            "llm": llm_ok,
+            "model": settings.OLLAMA_MODEL,
+        }

@@ -1,49 +1,94 @@
-import enum
+"""
+Tax Event, Declaration and Validation Models
+"""
 
-from sqlalchemy import JSON, Column, DateTime, Enum, Float, String, Text
+from sqlalchemy import Column, Float, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import JSON
+from sqlalchemy.orm import relationship
 
-from app.core.database import Base
-from app.core.utils import generate_uuid, utc_now
-
-
-class DeclarationStatus(str, enum.Enum):
-    DRAFT = "draft"
-    PENDING = "pending"
-    COMPLETED = "completed"
-    FILED = "filed"
+from app.core.database.session import Base
+from app.shared.models.base import BaseModel, TimestampMixin
 
 
-class ValidationSeverity(str, enum.Enum):
-    INFO = "info"
-    WARNING = "warning"
-    ERROR = "error"
-    CRITICAL = "critical"
+class TaxEvent(Base, BaseModel, TimestampMixin):
+    """Tax event extracted from documents or manually entered"""
+    
+    __tablename__ = "tax_events"
+    
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    document_id = Column(Integer, ForeignKey("documents.id", ondelete="SET NULL"), nullable=True, index=True)
+    
+    # Event Classification
+    categoria = Column(String(100), nullable=False, index=True)
+    # Categorias: rendimento_trabalho, rendimento_investimento, despesa_medica, 
+    # despesa_educacao, doacao, pensao_alimenticia, etc
+    
+    subcategoria = Column(String(100), nullable=True)
+    
+    # Financial Data
+    valor = Column(Numeric(precision=15, scale=2), nullable=False)  # IMPORTANTE: Float → Numeric para precisão
+    
+    # Period
+    competencia = Column(String(7), nullable=False, index=True)  # YYYY-MM format
+    
+    # Origin
+    origem = Column(String(50), default="ocr", nullable=False)  # ocr, manual, importacao
+    
+    # Additional metadata (JSONB for flexibility)
+    metadata_json = Column(JSON, nullable=True)
+    
+    # Relationships
+    user = relationship("User", back_populates="tax_events")
+    document = relationship("Document", back_populates="tax_events")
+    
+    def __repr__(self) -> str:
+        return f"<TaxEvent(id={self.id}, user_id={self.user_id}, categoria={self.categoria}, valor={self.valor})>"
 
 
-class Declaration(Base):
+class Declaration(Base, BaseModel, TimestampMixin):
+    """Tax declaration (IRPF) for a specific year"""
+    
     __tablename__ = "declarations"
+    
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Year
+    ano_base = Column(Integer, nullable=False, index=True)  # 2025, 2026, etc
+    
+    # Status
+    status = Column(String(50), default="rascunho", nullable=False)  # rascunho, finalizada, enviada
+    
+    # Calculations
+    restituicao_estimada = Column(Numeric(precision=15, scale=2), nullable=True)
+    imposto_devido = Column(Numeric(precision=15, scale=2), nullable=True)
+    
+    # Relationships
+    user = relationship("User", back_populates="declarations")
+    validations = relationship("Validation", back_populates="declaration", cascade="all, delete-orphan")
+    
+    def __repr__(self) -> str:
+        return f"<Declaration(id={self.id}, user_id={self.user_id}, ano_base={self.ano_base}, status={self.status})>"
 
-    id = Column(String, primary_key=True, default=generate_uuid)
-    user_id = Column(String, nullable=False, index=True)
-    ano_base = Column(String(4), nullable=False)
-    status = Column(Enum(DeclarationStatus), default=DeclarationStatus.DRAFT)
-    restituicao_estimada = Column(Float, default=0.0)
-    imposto_devido = Column(Float, default=0.0)
-    total_rendimentos = Column(Float, default=0.0)
-    total_retencao = Column(Float, default=0.0)
-    qtd_dependentes = Column(Float, default=0.0)
-    total_deducao_dependentes = Column(Float, default=0.0)
-    created_at = Column(DateTime(timezone=True), default=utc_now)
-    updated_at = Column(DateTime(timezone=True), default=utc_now, onupdate=utc_now)
 
-
-class Validation(Base):
+class Validation(Base, BaseModel, TimestampMixin):
+    """Validation issues found in declarations"""
+    
     __tablename__ = "validations"
-
-    id = Column(String, primary_key=True, default=generate_uuid)
-    declaration_id = Column(String, nullable=False, index=True)
-    tipo = Column(String(100))
-    severidade = Column(Enum(ValidationSeverity), default=ValidationSeverity.INFO)
-    mensagem = Column(Text)
-    metadata_json = Column(JSON)
-    created_at = Column(DateTime(timezone=True), default=utc_now)
+    
+    declaration_id = Column(Integer, ForeignKey("declarations.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Validation Type
+    tipo = Column(String(100), nullable=False)
+    # Tipos: missing_document, valor_inconsistente, deducao_invalida, cpf_invalido, etc
+    
+    # Severity
+    severidade = Column(String(20), default="info", nullable=False)  # info, warning, error
+    
+    # Message
+    mensagem = Column(Text, nullable=False)
+    
+    # Relationship
+    declaration = relationship("Declaration", back_populates="validations")
+    
+    def __repr__(self) -> str:
+        return f"<Validation(id={self.id}, declaration_id={self.declaration_id}, tipo={self.tipo}, severidade={self.severidade})>"

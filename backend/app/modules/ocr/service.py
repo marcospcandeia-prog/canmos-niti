@@ -1,85 +1,119 @@
-"""
-OCR Service — PaddleOCR principal, Tesseract fallback.
-Totalmente determinístico. Não usa IA para extração.
-"""
 import io
-import re
+import logging
 from typing import Optional
-from dataclasses import dataclass
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config.settings import get_settings
+from app.modules.storage.minio_service import get_minio_service
+from app.shared.models.document import Document, OCRResult
+from app.modules.ocr.engines.paddleocr_engine import extract_text_paddleocr
+from app.modules.ocr.engines.tesseract_engine import extract_text_tesseract
+
+logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
-@dataclass
-class OCROutput:
-    texto: str
-    confianca: float
-    engine: str
+class OCRService:
 
+    @staticmethod
+    async def process_document(
+        document_id: int,
+        db: AsyncSession
+    ) -> Optional[OCRResult]:
+        stmt = select(Document).where(Document.id == document_id)
+        result = await db.execute(stmt)
+        document = result.scalar_one_or_none()
 
-def extract_text_from_bytes(content: bytes, mime_type: str) -> OCROutput:
-    """Tenta PaddleOCR primeiro, cai para Tesseract se falhar."""
-    if mime_type == "application/pdf":
-        content = _pdf_to_image(content)
-
-    result = _try_paddle(content)
-    if result:
-        return result
-
-    return _try_tesseract(content)
-
-
-def _pdf_to_image(pdf_bytes: bytes) -> bytes:
-    try:
-        import fitz  # PyMuPDF
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-        page = doc[0]
-        mat = fitz.Matrix(2, 2)  # 2x zoom para melhor OCR
-        pix = page.get_pixmap(matrix=mat)
-        return pix.tobytes("png")
-    except Exception:
-        return pdf_bytes
-
-
-def _try_paddle(content: bytes) -> Optional[OCROutput]:
-    try:
-        from paddleocr import PaddleOCR
-        import numpy as np
-        from PIL import Image
-
-        ocr = PaddleOCR(use_angle_cls=True, lang="pt", show_log=False)
-        img = Image.open(io.BytesIO(content)).convert("RGB")
-        img_array = np.array(img)
-        result = ocr.ocr(img_array, cls=True)
-
-        if not result or not result[0]:
+        if not document:
             return None
 
-        lines = []
-        confidences = []
-        for line in result[0]:
-            text, conf = line[1]
-            lines.append(text)
-            confidences.append(conf)
+        document.status = "processing"
+        await db.commit()
 
-        texto = "\n".join(lines)
-        confianca = sum(confidences) / len(confidences) if confidences else 0.0
+        try:
+            minio_service = get_minio_service()
+            file_data = minio_service.download_file(document.storage_path)
 
-        return OCROutput(texto=texto, confianca=round(confianca, 4), engine="paddleocr")
-    except Exception:
-        return None
+            if not file_data:
+                document.status = "error"
+                await db.commit()
+                logger.error(f"Failed to download file for doc {document_id}")
+                return None
 
+            texto, confianca, engine = None, None, "paddleocr"
+            texto, confianca = await extract_text_paddleocr(file_data)
 
-def _try_tesseract(content: bytes) -> OCROutput:
-    try:
-        import pytesseract
-        from PIL import Image
+            if not texto:
+                engine = "tesseract"
+                texto, confianca = await extract_text_tesseract(file_data)
 
-        img = Image.open(io.BytesIO(content))
-        data = pytesseract.image_to_data(img, lang="por", output_type=pytesseract.Output.DICT)
-        words = [w for w, c in zip(data["text"], data["conf"]) if int(c) > 30 and w.strip()]
-        confs = [int(c) for c in data["conf"] if int(c) > 30]
-        texto = pytesseract.image_to_string(img, lang="por")
-        confianca = (sum(confs) / len(confs) / 100) if confs else 0.5
+            ocr_result = OCRResult(
+                document_id=document.id,
+                texto_extraido=texto or "",
+                confianca=confianca,
+                engine_utilizada=engine,
+                status="success" if texto else "failed"
+            )
 
-        return OCROutput(texto=texto.strip(), confianca=round(confianca, 4), engine="tesseract")
-    except Exception as e:
-        return OCROutput(texto="", confianca=0.0, engine="tesseract")
+            db.add(ocr_result)
+            document.status = "processed" if texto else "error"
+            await db.commit()
+            await db.refresh(ocr_result)
+
+            return ocr_result
+
+        except Exception as e:
+            logger.error(f"OCR processing error: {e}")
+            document.status = "error"
+            await db.commit()
+            return None
+
+    @staticmethod
+    async def process_document_by_url(
+        file_data: bytes,
+        db: AsyncSession,
+        document_id: int
+    ) -> Optional[OCRResult]:
+        texto, confianca = await extract_text_paddleocr(file_data)
+
+        engine = "paddleocr"
+        if not texto:
+            texto, confianca = await extract_text_tesseract(file_data)
+            engine = "tesseract"
+
+        if not texto:
+            return None
+
+        ocr_result = OCRResult(
+            document_id=document_id,
+            texto_extraido=texto,
+            confianca=confianca,
+            engine_utilizada=engine,
+            status="success"
+        )
+
+        db.add(ocr_result)
+        await db.commit()
+        await db.refresh(ocr_result)
+
+        return ocr_result
+
+    @staticmethod
+    async def get_ocr_result(
+        document_id: int,
+        db: AsyncSession
+    ) -> Optional[OCRResult]:
+        stmt = select(OCRResult).where(OCRResult.document_id == document_id).order_by(OCRResult.created_at.desc())
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def get_document_status(
+        document_id: int,
+        db: AsyncSession
+    ) -> Optional[str]:
+        stmt = select(Document.status).where(Document.id == document_id)
+        result = await db.execute(stmt)
+        return result.scalar_one_or_none()

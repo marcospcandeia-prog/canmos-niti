@@ -1,139 +1,236 @@
-import hashlib
-import uuid
-import threading
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status, BackgroundTasks
-from sqlalchemy.orm import Session
+"""
+Documents Router
+FastAPI endpoints for document management
+"""
+
 from typing import List
-from app.core.database import get_db
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.database.session import get_db
 from app.core.middleware.auth import get_current_user
-from app.shared.models import User, Document, DocumentStatus, OCRResult, OCRStatus
-from app.modules.storage.service import upload_file_to_storage
-from app.modules.ocr.worker import process_document_sync
+from app.modules.auth.schemas import MessageResponse
+from app.modules.documents.schemas import (
+    DocumentDownloadResponse,
+    DocumentListResponse,
+    DocumentResponse,
+    DocumentStats,
+    DocumentUploadResponse,
+)
+from app.modules.documents.service import DocumentsService
+from app.shared.models.user import User
 
-router = APIRouter(prefix="/documents", tags=["Documents"])
-
-ALLOWED_MIME_TYPES = {
-    "application/pdf",
-    "image/jpeg",
-    "image/png",
-    "image/jpg",
-}
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
+router = APIRouter()
 
 
-@router.post("/upload", status_code=201)
+@router.post(
+    "/upload",
+    response_model=DocumentUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Fazer upload de documento",
+    description="Faz upload de documento (PDF ou imagem) para processamento",
+    responses={
+        201: {"description": "Documento enviado com sucesso"},
+        400: {"description": "Arquivo inválido ou já enviado"},
+        401: {"description": "Não autenticado"},
+    }
+)
 async def upload_document(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
+    file: UploadFile = File(..., description="Arquivo para upload (PDF ou imagem)"),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    # Validação de tipo
-    if file.content_type not in ALLOWED_MIME_TYPES:
+    db: AsyncSession = Depends(get_db)
+) -> DocumentUploadResponse:
+    """
+    Fazer upload de documento
+    
+    **Tipos suportados:**
+    - PDF: application/pdf
+    - Imagens: jpeg, jpg, png, tiff, bmp
+    
+    **Tamanho máximo:** 10MB
+    
+    **Processo:**
+    1. Validação do arquivo
+    2. Upload para MinIO
+    3. Cálculo de hash SHA256 (deduplicação)
+    4. Criação de registro no banco
+    5. Disparo de OCR assíncrono (futuro)
+    """
+    document = await DocumentsService.upload_document(file, current_user, db)
+    return DocumentUploadResponse.model_validate(document)
+
+
+@router.get(
+    "",
+    response_model=List[DocumentListResponse],
+    summary="Listar documentos do usuário",
+    description="Lista todos os documentos do usuário autenticado",
+    responses={
+        200: {"description": "Lista retornada com sucesso"},
+        401: {"description": "Não autenticado"},
+    }
+)
+async def list_documents(
+    skip: int = Query(0, ge=0, description="Offset para paginação"),
+    limit: int = Query(100, ge=1, le=100, description="Limite de resultados"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> List[DocumentListResponse]:
+    """
+    Listar documentos do usuário
+    
+    **Paginação:**
+    - `skip`: Número de registros para pular (padrão: 0)
+    - `limit`: Máximo de registros (padrão: 100, máx: 100)
+    
+    **Ordenação:** Mais recentes primeiro (created_at DESC)
+    """
+    documents = await DocumentsService.get_user_documents(current_user, db, skip, limit)
+    return [DocumentListResponse.model_validate(doc) for doc in documents]
+
+
+@router.get(
+    "/stats",
+    response_model=DocumentStats,
+    summary="Obter estatísticas de documentos",
+    description="Retorna estatísticas de documentos do usuário",
+    responses={
+        200: {"description": "Estatísticas retornadas com sucesso"},
+        401: {"description": "Não autenticado"},
+    }
+)
+async def get_documents_stats(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> DocumentStats:
+    """
+    Obter estatísticas de documentos
+    
+    Retorna:
+    - Total de documentos
+    - Contagem por status (uploaded, processing, processed, error)
+    - Contagem por tipo de documento
+    """
+    return await DocumentsService.get_document_stats(current_user, db)
+
+
+@router.get(
+    "/{document_id}",
+    response_model=DocumentResponse,
+    summary="Obter detalhes do documento",
+    description="Retorna detalhes completos de um documento, incluindo resultado OCR se disponível",
+    responses={
+        200: {"description": "Documento retornado com sucesso"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Documento não encontrado"},
+    }
+)
+async def get_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> DocumentResponse:
+    """
+    Obter detalhes do documento
+    
+    Retorna:
+    - Metadados do documento
+    - Resultado OCR (se disponível)
+    - Status do processamento
+    """
+    document = await DocumentsService.get_document_by_id(document_id, current_user, db)
+    
+    if not document:
         raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Tipo de arquivo não suportado. Use: PDF, JPG ou PNG"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Documento não encontrado"
         )
-
-    content = await file.read()
-
-    # Validação de tamanho
-    if len(content) > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="Arquivo muito grande. Máximo: 10MB"
-        )
-
-    # Hash do arquivo (integridade + dedup)
-    file_hash = hashlib.sha256(content).hexdigest()
-
-    # Verificar duplicata
-    existing = db.query(Document).filter(
-        Document.user_id == current_user.id,
-        Document.hash_arquivo == file_hash,
-    ).first()
-    if existing:
-        return {"message": "Documento já enviado anteriormente", "document_id": str(existing.id)}
-
-    # Upload para MinIO
-    storage_path = f"users/{current_user.id}/documents/{uuid.uuid4()}/{file.filename}"
-    await upload_file_to_storage(content, storage_path, file.content_type)
-
-    # Salvar no banco
-    document = Document(
-        user_id=current_user.id,
-        nome_original=file.filename,
-        storage_path=storage_path,
-        mime_type=file.content_type,
-        hash_arquivo=file_hash,
-        tamanho_bytes=str(len(content)),
-        status=DocumentStatus.UPLOADED,
-    )
-    db.add(document)
-    db.flush()
-
-    # Criar registro OCR pendente
-    ocr_result = OCRResult(
-        document_id=document.id,
-        status=OCRStatus.PENDING,
-    )
-    db.add(ocr_result)
-    db.commit()
-    db.refresh(document)
-
-    # Disparar OCR em background automaticamente
-    doc_id = str(document.id)
-    background_tasks.add_task(process_document_sync, doc_id)
-
-    return {
-        "message": "Documento enviado com sucesso. Processamento OCR iniciado.",
-        "document_id": doc_id,
+    
+    # Build response with OCR data if exists
+    response_data = {
+        "id": document.id,
+        "user_id": document.user_id,
+        "tipo": document.tipo,
+        "nome_original": document.nome_original,
+        "storage_path": document.storage_path,
+        "mime_type": document.mime_type,
+        "hash_arquivo": document.hash_arquivo,
         "status": document.status,
+        "created_at": document.created_at,
+        "updated_at": document.updated_at,
     }
+    
+    if document.ocr_result:
+        response_data.update({
+            "ocr_texto": document.ocr_result.texto_extraido,
+            "ocr_confianca": document.ocr_result.confianca,
+            "ocr_engine": document.ocr_result.engine_utilizada,
+            "ocr_status": document.ocr_result.status,
+        })
+    
+    return DocumentResponse(**response_data)
 
 
-@router.get("/", response_model=List[dict])
-def list_documents(
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    docs = db.query(Document).filter(
-        Document.user_id == current_user.id
-    ).order_by(Document.created_at.desc()).all()
-
-    return [
-        {
-            "id": str(d.id),
-            "nome_original": d.nome_original,
-            "tipo": d.tipo,
-            "status": d.status,
-            "mime_type": d.mime_type,
-            "tamanho_bytes": d.tamanho_bytes,
-            "created_at": d.created_at.isoformat(),
-        }
-        for d in docs
-    ]
-
-
-@router.get("/{document_id}")
-def get_document(
-    document_id: str,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    doc = db.query(Document).filter(
-        Document.id == document_id,
-        Document.user_id == current_user.id,
-    ).first()
-
-    if not doc:
-        raise HTTPException(status_code=404, detail="Documento não encontrado")
-
-    return {
-        "id": str(doc.id),
-        "nome_original": doc.nome_original,
-        "tipo": doc.tipo,
-        "status": doc.status,
-        "ocr_status": doc.ocr_result.status if doc.ocr_result else None,
-        "created_at": doc.created_at.isoformat(),
+@router.get(
+    "/{document_id}/download",
+    response_model=DocumentDownloadResponse,
+    summary="Obter URL de download do documento",
+    description="Gera URL temporária para download do documento",
+    responses={
+        200: {"description": "URL gerada com sucesso"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Documento não encontrado"},
     }
+)
+async def download_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> DocumentDownloadResponse:
+    """
+    Obter URL de download do documento
+    
+    Gera uma URL temporária (presigned) para download direto do MinIO.
+    
+    **Validade:** 1 hora
+    
+    **Nota:** A URL permite download direto sem autenticação adicional,
+    mas expira após 1 hora.
+    """
+    url = await DocumentsService.get_download_url(document_id, current_user, db)
+    
+    return DocumentDownloadResponse(
+        download_url=url,
+        expires_in=3600  # 1 hour
+    )
+
+
+@router.delete(
+    "/{document_id}",
+    response_model=MessageResponse,
+    summary="Excluir documento",
+    description="Exclui documento do MinIO e banco de dados",
+    responses={
+        200: {"description": "Documento excluído com sucesso"},
+        401: {"description": "Não autenticado"},
+        404: {"description": "Documento não encontrado"},
+    }
+)
+async def delete_document(
+    document_id: int,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+) -> MessageResponse:
+    """
+    Excluir documento
+    
+    **Atenção:** Esta ação é irreversível!
+    
+    - Remove arquivo do MinIO
+    - Remove registro do banco de dados
+    - Remove resultados OCR associados (cascade)
+    - Remove eventos tributários vinculados (cascade)
+    """
+    await DocumentsService.delete_document(document_id, current_user, db)
+    return MessageResponse(message="Documento excluído com sucesso")

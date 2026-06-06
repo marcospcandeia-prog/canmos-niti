@@ -1,0 +1,17 @@
+Generic single-database configuration with async support for Supabase PostgreSQL.
+
+Usage:
+  # Create new migration
+  alembic revision --autogenerate -m "Description"
+
+  # Apply migrations
+  alembic upgrade head
+
+  # Rollback migration
+  alembic downgrade -1
+
+  # Show current revision
+  alembic current
+
+  # Show migration history
+  alembic history

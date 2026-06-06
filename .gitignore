@@ -1,57 +1,62 @@
-# Env
-.env
-.env.prod
-.env.local
-*.env
-
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
-.venv/
+*$py.class
+*.so
+.Python
+env/
 venv/
-.pytest_cache/
+ENV/
+.venv
 *.egg-info/
-
-# Banco local de dev
-*.db
-*.sqlite
-test.db
-canmos_dev.db
-
-# Storage local de dev
-backend/local_storage/
-
-# Coverage
-.coverage
-htmlcov/
+dist/
+build/
 
 # Node
 node_modules/
 .next/
-.turbo/
 out/
-dist/
+.npm
+*.log
 
-# Docker volumes
-postgres_data/
-minio_data/
-qdrant_data/
-ollama_data/
+# Environment
+.env
+.env.local
+.env.production
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
 
 # OS
 .DS_Store
 Thumbs.db
 
-# IDE
-.idea/
-.vscode/
-*.swp
+# Docker
+*.pid
+*.seed
+*.pid.lock
+
+# Storage
+storage/*
+!storage/.gitkeep
+
+# Database
+*.db
+*.sqlite
 
 # Logs
-*.log
 logs/
+*.log
 
-# Uploads locais
-uploads/
-storage/
+# Test
+.coverage
+htmlcov/
+.pytest_cache/
+coverage/
+
+# Alembic
+alembic/versions/*.pyc

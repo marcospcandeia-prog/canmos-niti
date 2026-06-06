@@ -1,18 +1,36 @@
-import uuid
-from datetime import datetime, timezone
-from sqlalchemy import Column, DateTime, String
-from sqlalchemy.dialects.postgresql import UUID
-from app.core.database import Base
+"""
+Base Model Classes and Mixins
+"""
+
+from datetime import datetime
+from typing import Any
+
+from sqlalchemy import Column, DateTime, Integer
+from sqlalchemy.ext.declarative import declared_attr
 
 
-class BaseModel(Base):
-    __abstract__ = True
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
-    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+class TimestampMixin:
+    """Mixin for created_at and updated_at timestamps"""
+    
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(
-        DateTime(timezone=True),
-        default=lambda: datetime.now(timezone.utc),
-        onupdate=lambda: datetime.now(timezone.utc),
-        nullable=False,
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False
     )
+
+
+class BaseModel:
+    """Base model with common attributes"""
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    
+    @declared_attr
+    def __tablename__(cls) -> str:
+        """Generate __tablename__ automatically from class name"""
+        return cls.__name__.lower() + 's'
+    
+    def dict(self) -> dict[str, Any]:
+        """Convert model to dictionary"""
+        return {c.name: getattr(self, c.name) for c in self.__table__.columns}

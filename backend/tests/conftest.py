@@ -1,151 +1,100 @@
 import os
 
-import pytest
-
-os.environ["DATABASE_URL"] = "sqlite:///test.db"
-os.environ["SECRET_KEY"] = "test-secret-key"
+os.environ["APP_ENV"] = "test"
+os.environ["JWT_SECRET"] = "test-secret-key-nao-usar-em-producao"
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
+os.environ["SUPABASE_URL"] = "https://test.supabase.co"
+os.environ["SUPABASE_ANON_KEY"] = "test-anon-key"
+os.environ["SUPABASE_SERVICE_ROLE"] = "test-service-role"
 os.environ["MINIO_ENDPOINT"] = "localhost:9000"
-os.environ["MINIO_ACCESS_KEY"] = "test"
-os.environ["MINIO_SECRET_KEY"] = "test"
-os.environ["MINIO_BUCKET"] = "test-bucket"
+os.environ["MINIO_ACCESS_KEY"] = "test-access"
+os.environ["MINIO_SECRET_KEY"] = "test-secret"
+os.environ["OLLAMA_HOST"] = "http://localhost:11434"
+os.environ["CORS_ORIGINS"] = '["*"]'
 
-from unittest.mock import AsyncMock, patch
+import asyncio
+import pytest
+from httpx import AsyncClient, ASGITransport
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy.pool import StaticPool
 
-from fastapi.testclient import TestClient
-
-from app.core.config import settings
-from app.core.database import (
-    Base,
-    get_db,
-    get_engine,
-    init_db,
-    reset_engine,
-)
-from app.core.security import hash_password
 from app.main import app
-from app.shared.models.tax import Declaration, DeclarationStatus
-from app.shared.models.user import User, UserStatus
-
-TEST_DATABASE_URL = "sqlite:///test.db"
-_SESSION_LOCAL = None
-_TABLES = []
+from app.core.database.session import get_db, Base
 
 
-def get_test_session_local():
-    global _SESSION_LOCAL
-    if _SESSION_LOCAL is None:
-        from sqlalchemy.orm import sessionmaker
-        _SESSION_LOCAL = sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
-    return _SESSION_LOCAL
+TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+
+engine = create_async_engine(
+    TEST_DATABASE_URL,
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+
+TestingSessionLocal = async_sessionmaker(
+    engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+)
 
 
-def override_get_db():
-    db = get_test_session_local()()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-@pytest.fixture(scope="session", autouse=True)
-def setup_db():
-    global _TABLES
-    reset_engine()
-    _SESSION_LOCAL = None
-    settings.DATABASE_URL = TEST_DATABASE_URL
-    init_db()
-    _TABLES = [t for t in Base.metadata.sorted_tables]
-    yield
-    get_engine().dispose()
+@pytest.fixture(scope="session")
+def event_loop():
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
 
 
 @pytest.fixture(autouse=True)
-def clear_db():
+async def setup_db():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
     yield
-    engine = get_engine()
-    with engine.begin() as conn:
-        for table in reversed(_TABLES):
-            conn.execute(table.delete())
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.drop_all)
 
 
-@pytest.fixture(autouse=True)
-def mock_services():
-    with (
-        patch("app.modules.storage.service.StorageService._minio_available", return_value=False),
-        patch("app.modules.ocr.service.OcrService.process_document", new_callable=AsyncMock),
-    ):
-        yield
+async def override_get_db():
+    async with TestingSessionLocal() as session:
+        yield session
 
 
 @pytest.fixture
-def client():
+async def client():
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as c:
-        yield c
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
     app.dependency_overrides.clear()
 
 
 @pytest.fixture
-def db():
-    session = get_test_session_local()()
-    try:
+async def db_session():
+    async with TestingSessionLocal() as session:
         yield session
-    finally:
-        session.close()
 
 
 @pytest.fixture
-def test_user_data():
-    return {
-        "nome": "Usuario Teste",
+async def test_user(client):
+    response = await client.post("/auth/register", json={
+        "email": "teste@teste.com",
         "cpf": "52998224725",
-        "email": "teste@email.com",
-        "telefone": "11999999999",
-        "senha": "senha123",
-    }
-
-
-@pytest.fixture
-def test_user(db):
-    user = User(
-        nome="Usuario Teste",
-        cpf="52998224725",
-        email="teste@email.com",
-        telefone="11999999999",
-        senha_hash=hash_password("senha123"),
-        status=UserStatus.ACTIVE,
-    )
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
-
-
-@pytest.fixture
-def auth_headers(client, test_user_data):
-    client.post("/auth/register", json=test_user_data)
-    response = client.post("/auth/login", json={
-        "email": test_user_data["email"],
-        "senha": test_user_data["senha"],
+        "senha": "senha12345",
+        "nome": "Teste da Silva",
+        "lgpd_consent": True,
     })
-    token = response.json()["access_token"]
-    return {"Authorization": f"Bearer {token}"}
+    return response.json()
 
 
 @pytest.fixture
-def sample_declaration(db, test_user):
-    decl = Declaration(
-        user_id=test_user.id,
-        ano_base="2024",
-        status=DeclarationStatus.PENDING,
-        total_rendimentos=50000.0,
-        total_retencao=7500.0,
-        qtd_dependentes=0.0,
-        total_deducao_dependentes=0.0,
-        restituicao_estimada=1250.0,
-        imposto_devido=6250.0,
-    )
-    db.add(decl)
-    db.commit()
-    db.refresh(decl)
-    return decl
+async def token(client, test_user):
+    response = await client.post("/auth/login", json={
+        "email": "teste@teste.com",
+        "senha": "senha12345",
+    })
+    return response.json()["access_token"]
+
+
+@pytest.fixture
+async def auth_client(client, token):
+    client.headers["Authorization"] = f"Bearer {token}"
+    return client
