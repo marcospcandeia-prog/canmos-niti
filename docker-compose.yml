@@ -105,11 +105,32 @@ services:
     #           count: all
     #           capabilities: [gpu]
 
+  # MinIO Initialization (creates bucket)
+  minio-init:
+    image: minio/mc:latest
+    container_name: canmos-minio-init
+    profiles:
+      - ocr
+    entrypoint: >
+      /bin/sh -c "
+      echo 'Waiting for MinIO...' &&
+      sleep 10 &&
+      mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} &&
+      mc mb local/canmos-documents --ignore-existing &&
+      mc anonymous set none local/canmos-documents &&
+      echo 'MinIO bucket ready!'
+      "
+    depends_on:
+      - minio
+    networks:
+      - canmos-network
+    restart: "no"
+
   # OCR Service Worker
   ocr-service:
     build:
-      context: ./backend
-      dockerfile: ../infra/docker/Dockerfile.ocr
+      context: .
+      dockerfile: infra/docker/Dockerfile.ocr
     container_name: canmos-ocr
     profiles:
       - ocr
@@ -120,11 +141,13 @@ services:
       - MINIO_ENDPOINT=minio:9000
       - MINIO_ACCESS_KEY=${MINIO_ACCESS_KEY}
       - MINIO_SECRET_KEY=${MINIO_SECRET_KEY}
+      - OCR_API_HOST=http://localhost:8001
       - OCR_POLL_INTERVAL=10
     volumes:
       - ./backend:/app
     depends_on:
       - minio
+      - minio-init
     networks:
       - canmos-network
     restart: unless-stopped

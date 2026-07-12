@@ -206,7 +206,7 @@ make stop-prod
 | **ollama** | 11434 | LLM (auto-pulls modelo) |
 | **ocr-service** | - | OCR worker (perfil `ocr`) |
 
-## 9. Segurança
+## 10. Segurança
 
 1. **JWT_SECRET:** Gerar com `openssl rand -hex 64`
 2. **CORS:** Restringir origens ao domínio do frontend
@@ -214,7 +214,7 @@ make stop-prod
 4. **SSL/TLS:** Habilitado automaticamente por Vercel/Render
 5. **Migrations:** Rodar `alembic upgrade head` uma vez, não em todo deploy
 
-## 9. Monitoramento
+## 11. Monitoramento
 
 - **Render:** Logs embutidos no dashboard
 - **Vercel:** Analytics e Logs no dashboard

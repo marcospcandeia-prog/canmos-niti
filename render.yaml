@@ -4,10 +4,11 @@ services:
     runtime: python
     repo: https://github.com/marcospcandeia-prog/canmos-niti
     region: ohio
-    plan: free
+    plan: starter
     rootDir: backend
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    startCommand: gunicorn app.main:app --workers $((2 * $(nproc) + 1)) --worker-class uvicorn.workers.UvicornWorker --bind 0.0.0.0:$PORT --access-logfile - --error-logfile - --log-level info
+    preDeployCommand: cd backend && alembic upgrade head
     healthCheckPath: /health
     envVars:
       - key: APP_ENV
@@ -20,6 +21,8 @@ services:
         generateValue: true
       - key: CORS_ORIGINS
         sync: false
+      - key: OCR_API_HOST
+        sync: false
       - key: MINIO_ENDPOINT
         sync: false
       - key: MINIO_ACCESS_KEY
@@ -31,7 +34,7 @@ services:
       - key: MINIO_SECURE
         value: true
       - key: OLLAMA_HOST
-        value: http://ollama:11434
+        sync: false
       - key: OLLAMA_MODEL
         value: phi3:mini
       - key: SUPABASE_URL
@@ -39,17 +42,4 @@ services:
       - key: SUPABASE_ANON_KEY
         sync: false
       - key: SUPABASE_SERVICE_ROLE
-        sync: false
-
-  - type: web
-    name: canmos-frontend
-    runtime: node
-    repo: https://github.com/marcospcandeia-prog/canmos-niti
-    region: ohio
-    plan: free
-    rootDir: frontend
-    buildCommand: npm ci && npm run build
-    startCommand: npm start
-    envVars:
-      - key: NEXT_PUBLIC_API_URL
         sync: false

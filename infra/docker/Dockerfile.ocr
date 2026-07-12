@@ -17,16 +17,20 @@ RUN apt-get update && apt-get install -y \
     libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements
-COPY requirements.txt requirements-ocr.txt
+# Copy requirements (from project root context)
+COPY backend/requirements.txt backend/requirements-ocr.txt ./
 
 # Install Python dependencies + OCR libraries
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir -r requirements-ocr.txt
 
-# Copy application
-COPY . .
+# Copy application code
+COPY backend/ .
+
+# Copy entrypoint
+COPY infra/docker/entrypoint-ocr.sh /entrypoint.sh
+RUN chmod +x /entrypoint.sh
 
 # Create non-root user
 RUN useradd -m -u 1000 ocruser && \
@@ -34,5 +38,5 @@ RUN useradd -m -u 1000 ocruser && \
 
 USER ocruser
 
-# Run OCR API server on port 8001
-CMD ["uvicorn", "app.modules.ocr.ocr_api:app", "--host", "0.0.0.0", "--port", "8001"]
+# Run entrypoint (starts API + Worker)
+CMD ["/bin/bash", "/entrypoint.sh"]
