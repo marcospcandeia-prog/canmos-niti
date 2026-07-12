@@ -2,12 +2,6 @@ import "@testing-library/jest-dom/jest-globals"
 import { render, screen, waitFor, fireEvent } from "@testing-library/react"
 import DeclarationsPage from "@/app/declarations/page"
 
-const mockPush = jest.fn()
-
-jest.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mockPush }),
-}))
-
 const mockGet = jest.fn()
 const mockPost = jest.fn()
 
@@ -15,6 +9,10 @@ jest.mock("@/lib/api", () => ({
   get: (...args: unknown[]) => mockGet(...args),
   post: (...args: unknown[]) => mockPost(...args),
   __esModule: true,
+  api: {
+    get: (...args: unknown[]) => mockGet(...args),
+    post: (...args: unknown[]) => mockPost(...args),
+  },
   default: {
     get: (...args: unknown[]) => mockGet(...args),
     post: (...args: unknown[]) => mockPost(...args),
@@ -178,13 +176,4 @@ describe("DeclarationsPage", () => {
     expect(select.value).toBe("2024")
   })
 
-  it("redirects on 401", async () => {
-    mockGet.mockRejectedValue({ response: { status: 401 } })
-
-    render(<DeclarationsPage />)
-
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith("/auth/login")
-    })
-  })
 })

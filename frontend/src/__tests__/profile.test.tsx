@@ -19,6 +19,12 @@ jest.mock("@/lib/api", () => ({
   post: (...args: unknown[]) => mockPost(...args),
   delete: (...args: unknown[]) => mockDelete(...args),
   __esModule: true,
+  api: {
+    get: (...args: unknown[]) => mockGet(...args),
+    put: (...args: unknown[]) => mockPut(...args),
+    post: (...args: unknown[]) => mockPost(...args),
+    delete: (...args: unknown[]) => mockDelete(...args),
+  },
   default: {
     get: (...args: unknown[]) => mockGet(...args),
     put: (...args: unknown[]) => mockPut(...args),

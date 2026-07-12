@@ -9,6 +9,10 @@ jest.mock("@/lib/api", () => ({
   get: (...args: unknown[]) => mockGet(...args),
   post: (...args: unknown[]) => mockPost(...args),
   __esModule: true,
+  api: {
+    get: (...args: unknown[]) => mockGet(...args),
+    post: (...args: unknown[]) => mockPost(...args),
+  },
   default: {
     get: (...args: unknown[]) => mockGet(...args),
     post: (...args: unknown[]) => mockPost(...args),
@@ -65,7 +69,7 @@ describe("ChatPage", () => {
     render(<ChatPage />)
 
     await waitFor(() => {
-      expect(screen.getByText(/Ollama nao esta rodando/)).toBeInTheDocument()
+      expect(screen.getByText(/Ollama não está rodando/)).toBeInTheDocument()
     })
   })
 
@@ -73,10 +77,10 @@ describe("ChatPage", () => {
     render(<ChatPage />)
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Digite sua duvida tributaria...")).toBeInTheDocument()
+      expect(screen.getByPlaceholderText("Digite sua dúvida tributária...")).toBeInTheDocument()
     })
 
-    const textarea = screen.getByPlaceholderText("Digite sua duvida tributaria...")
+    const textarea = screen.getByPlaceholderText("Digite sua dúvida tributária...")
     fireEvent.change(textarea, { target: { value: "Como declarar rendimentos?" } })
 
     fireEvent.submit(screen.getByText("Enviar").closest("form")!)
@@ -96,10 +100,10 @@ describe("ChatPage", () => {
     render(<ChatPage />)
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Digite sua duvida tributaria...")).toBeInTheDocument()
+      expect(screen.getByPlaceholderText("Digite sua dúvida tributária...")).toBeInTheDocument()
     })
 
-    const textarea = screen.getByPlaceholderText("Digite sua duvida tributaria...")
+    const textarea = screen.getByPlaceholderText("Digite sua dúvida tributária...")
     fireEvent.change(textarea, { target: { value: "Test message" } })
     fireEvent.submit(screen.getByText("Enviar").closest("form")!)
 
@@ -116,10 +120,10 @@ describe("ChatPage", () => {
     render(<ChatPage />)
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Digite sua duvida tributaria...")).toBeInTheDocument()
+      expect(screen.getByPlaceholderText("Digite sua dúvida tributária...")).toBeInTheDocument()
     })
 
-    const textarea = screen.getByPlaceholderText("Digite sua duvida tributaria...")
+    const textarea = screen.getByPlaceholderText("Digite sua dúvida tributária...")
     fireEvent.change(textarea, { target: { value: "Test error" } })
     fireEvent.submit(screen.getByText("Enviar").closest("form")!)
 
@@ -134,15 +138,15 @@ describe("ChatPage", () => {
     render(<ChatPage />)
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Digite sua duvida tributaria...")).toBeInTheDocument()
+      expect(screen.getByPlaceholderText("Digite sua dúvida tributária...")).toBeInTheDocument()
     })
 
-    const textarea = screen.getByPlaceholderText("Digite sua duvida tributaria...")
+    const textarea = screen.getByPlaceholderText("Digite sua dúvida tributária...")
     fireEvent.change(textarea, { target: { value: "Test error" } })
     fireEvent.submit(screen.getByText("Enviar").closest("form")!)
 
     await waitFor(() => {
-      expect(screen.getByText(/Ollama esta rodando/)).toBeInTheDocument()
+      expect(screen.getByText(/Ollama está rodando/)).toBeInTheDocument()
     })
   })
 
@@ -156,7 +160,7 @@ describe("ChatPage", () => {
     fireEvent.click(screen.getByText("Nova Conversa"))
 
     await waitFor(() => {
-      expect(screen.getByText("Conversa reiniciada! Como posso ajudar?")).toBeInTheDocument()
+      expect(screen.getByText(/assistente IA do CANMOS-NITI/)).toBeInTheDocument()
     })
   })
 
@@ -173,10 +177,10 @@ describe("ChatPage", () => {
     render(<ChatPage />)
 
     await waitFor(() => {
-      expect(screen.getByPlaceholderText("Digite sua duvida tributaria...")).toBeInTheDocument()
+      expect(screen.getByPlaceholderText("Digite sua dúvida tributária...")).toBeInTheDocument()
     })
 
-    const textarea = screen.getByPlaceholderText("Digite sua duvida tributaria...")
+    const textarea = screen.getByPlaceholderText("Digite sua dúvida tributária...")
     fireEvent.change(textarea, { target: { value: "Quais as fontes?" } })
     fireEvent.submit(screen.getByText("Enviar").closest("form")!)
 

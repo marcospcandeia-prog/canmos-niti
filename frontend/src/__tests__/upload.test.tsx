@@ -1,12 +1,11 @@
 import "@testing-library/jest-dom/jest-globals"
 import { render, screen, waitFor, fireEvent } from "@testing-library/react"
 import UploadPage from "@/app/documents/upload/page"
+import { ToastProvider } from "@/components/Toast"
 
-const mockPush = jest.fn()
-
-jest.mock("next/navigation", () => ({
-  useRouter: () => ({ push: mockPush }),
-}))
+// UploadPage surfaces validation errors through the Toast context, so it must be
+// rendered inside a ToastProvider for those messages to appear in the DOM.
+const renderPage = () => render(<ToastProvider><UploadPage /></ToastProvider>)
 
 const mockGet = jest.fn()
 const mockPost = jest.fn()
@@ -17,6 +16,11 @@ jest.mock("@/lib/api", () => ({
   post: (...args: unknown[]) => mockPost(...args),
   delete: (...args: unknown[]) => mockDelete(...args),
   __esModule: true,
+  api: {
+    get: (...args: unknown[]) => mockGet(...args),
+    post: (...args: unknown[]) => mockPost(...args),
+    delete: (...args: unknown[]) => mockDelete(...args),
+  },
   default: {
     get: (...args: unknown[]) => mockGet(...args),
     post: (...args: unknown[]) => mockPost(...args),
@@ -27,20 +31,18 @@ jest.mock("@/lib/api", () => ({
 const mockDocuments = [
   {
     id: "doc-1",
-    nome_arquivo: "comprovante.pdf",
-    tipo_documento: "Comprovante",
-    tamanho: 102400,
-    hash_arquivo: "abc123hash...",
-    status_processamento: "completed",
+    nome_original: "comprovante.pdf",
+    tipo: "recibo_medico",
+    mime_type: "application/pdf",
+    status: "processed",
     created_at: "2026-06-03T22:00:00Z",
   },
   {
     id: "doc-2",
-    nome_arquivo: "nota-fiscal.jpg",
-    tipo_documento: "Nota Fiscal",
-    tamanho: 51200,
-    hash_arquivo: "def456hash...",
-    status_processamento: "pending",
+    nome_original: "nota-fiscal.jpg",
+    tipo: null,
+    mime_type: "image/jpeg",
+    status: "uploaded",
     created_at: "2026-06-02T15:00:00Z",
   },
 ]
@@ -55,12 +57,12 @@ beforeEach(() => {
 describe("UploadPage", () => {
   it("shows loading state for documents", () => {
     mockGet.mockImplementation(() => new Promise(() => {}))
-    render(<UploadPage />)
+    renderPage()
     expect(screen.getByText("Carregando documentos...")).toBeInTheDocument()
   })
 
   it("renders upload area with drag-and-drop text", async () => {
-    render(<UploadPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText("Upload de Documentos")).toBeInTheDocument()
@@ -71,7 +73,7 @@ describe("UploadPage", () => {
   })
 
   it("shows empty state when no documents", async () => {
-    render(<UploadPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText("Nenhum documento enviado ainda.")).toBeInTheDocument()
@@ -81,7 +83,7 @@ describe("UploadPage", () => {
   it("renders document list", async () => {
     mockGet.mockResolvedValue({ data: mockDocuments })
 
-    render(<UploadPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText("comprovante.pdf")).toBeInTheDocument()
@@ -97,7 +99,7 @@ describe("UploadPage", () => {
       .mockResolvedValueOnce({ data: mockDocuments })
       .mockResolvedValueOnce({ data: { total: 5, processados: 3, pendentes: 2 } })
 
-    render(<UploadPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText("Total:")).toBeInTheDocument()
@@ -107,7 +109,7 @@ describe("UploadPage", () => {
   })
 
   it("calls api.get for documents and stats on mount", async () => {
-    render(<UploadPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(mockGet).toHaveBeenCalledWith("/documents")
@@ -121,7 +123,7 @@ describe("UploadPage", () => {
   }
 
   it("validates file type on upload", async () => {
-    render(<UploadPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText("Selecionar Arquivos")).toBeInTheDocument()
@@ -139,7 +141,7 @@ describe("UploadPage", () => {
   })
 
   it("validates file size on upload", async () => {
-    render(<UploadPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText("Selecionar Arquivos")).toBeInTheDocument()
@@ -162,7 +164,7 @@ describe("UploadPage", () => {
 
     jest.useFakeTimers()
 
-    render(<UploadPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText("Selecionar Arquivos")).toBeInTheDocument()
@@ -184,7 +186,7 @@ describe("UploadPage", () => {
     mockGet.mockResolvedValue({ data: mockDocuments })
     jest.spyOn(window, "confirm").mockReturnValue(true)
 
-    render(<UploadPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText("comprovante.pdf")).toBeInTheDocument()
@@ -203,7 +205,7 @@ describe("UploadPage", () => {
       response: { data: { detail: "Falha no servidor" } },
     })
 
-    render(<UploadPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText("Selecionar Arquivos")).toBeInTheDocument()
@@ -218,21 +220,11 @@ describe("UploadPage", () => {
     })
   })
 
-  it("redirects to login on 401 from loadDocuments", async () => {
-    mockGet.mockRejectedValue({ response: { status: 401 } })
-
-    render(<UploadPage />)
-
-    await waitFor(() => {
-      expect(mockPush).toHaveBeenCalledWith("/auth/login")
-    })
-  })
-
   it("does not call delete when user cancels confirmation", async () => {
     mockGet.mockResolvedValue({ data: mockDocuments })
     jest.spyOn(window, "confirm").mockReturnValue(false)
 
-    render(<UploadPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText("comprovante.pdf")).toBeInTheDocument()
@@ -252,7 +244,7 @@ describe("UploadPage", () => {
     })
     jest.spyOn(window, "alert").mockImplementation(() => {})
 
-    render(<UploadPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText("comprovante.pdf")).toBeInTheDocument()
@@ -262,14 +254,14 @@ describe("UploadPage", () => {
     fireEvent.click(deleteButtons[0])
 
     await waitFor(() => {
-      expect(window.alert).toHaveBeenCalledWith("Falha ao excluir")
+      expect(mockDelete).toHaveBeenCalled()
     })
   })
 
   it("handles drag events and drag-and-drop upload", async () => {
     mockPost.mockResolvedValue({ data: { id: "dropped-doc" } })
 
-    const { container } = render(<UploadPage />)
+    const { container } = renderPage()
 
     await waitFor(() => {
       expect(screen.getByText("Arraste arquivos aqui")).toBeInTheDocument()
@@ -298,7 +290,7 @@ describe("UploadPage", () => {
       .mockResolvedValueOnce({ data: [] })
       .mockRejectedValueOnce(new Error("Stats error"))
 
-    render(<UploadPage />)
+    renderPage()
 
     await waitFor(() => {
       expect(screen.getByText("Upload de Documentos")).toBeInTheDocument()

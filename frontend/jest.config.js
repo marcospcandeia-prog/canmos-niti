@@ -15,6 +15,7 @@ const config = {
   moduleNameMapper: {
     "^@/(.*)$": "<rootDir>/src/$1",
   },
+  setupFiles: ["<rootDir>/src/__tests__/jest.setup.ts"],
   testMatch: ["**/*.test.{ts,tsx,js,jsx}"],
   testPathIgnorePatterns: ["<rootDir>/node_modules/", "<rootDir>/.next/"],
   collectCoverageFrom: [
