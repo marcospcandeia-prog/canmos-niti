@@ -23,11 +23,6 @@ from app.core.config.settings import get_settings
 from app.core.database.session import Base
 
 # Import all models here to ensure they're registered with Base.metadata
-from app.shared.models.user import User, UserProfile
-from app.shared.models.document import Document, OCRResult
-from app.shared.models.tax import TaxEvent, Declaration, Validation
-from app.shared.models.ai import AIInteraction
-from app.shared.models.audit import AuditLog
 
 # this is the Alembic Config object
 config = context.config

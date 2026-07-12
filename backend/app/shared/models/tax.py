@@ -2,7 +2,7 @@
 Tax Event, Declaration and Validation Models
 """
 
-from sqlalchemy import Column, Float, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import Column, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy import JSON
 from sqlalchemy.orm import relationship
 

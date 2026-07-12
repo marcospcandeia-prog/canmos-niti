@@ -3,7 +3,8 @@ Users Router
 FastAPI endpoints for user profile management
 """
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database.session import get_db
@@ -171,3 +172,25 @@ async def delete_my_account(
     """
     await UsersService.delete_user_account(current_user, db)
     return MessageResponse(message="Conta desativada com sucesso")
+
+
+@router.get(
+    "/me/export",
+    summary="Exportar dados pessoais (LGPD)",
+    description="Exporta todos os dados do usuario em formato JSON (portabilidade LGPD)",
+    responses={
+        200: {"description": "Dados exportados com sucesso"},
+        401: {"description": "Nao autenticado"},
+    }
+)
+async def export_my_data(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    data = await UsersService.export_user_data(current_user, db)
+    return JSONResponse(
+        content=data,
+        headers={
+            "Content-Disposition": f"attachment; filename=canmos_niti_dados_{current_user.cpf}.json"
+        },
+    )

@@ -1,10 +1,8 @@
 import pytest
 from decimal import Decimal
 from httpx import AsyncClient
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.shared.models.tax import TaxEvent, Declaration
 
 
 @pytest.mark.asyncio
@@ -18,8 +16,6 @@ async def test_calculate_empty(auth_client: AsyncClient, db_session: AsyncSessio
 
 @pytest.mark.asyncio
 async def test_calculate_with_tax_events(auth_client: AsyncClient, test_user: dict):
-    from sqlalchemy import select
-    from app.core.database.session import get_db
 
     response = await auth_client.post("/tax/calculate/2025")
     assert response.status_code == 200

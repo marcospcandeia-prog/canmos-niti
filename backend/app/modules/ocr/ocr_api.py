@@ -1,6 +1,4 @@
-import io
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, File, UploadFile, HTTPException
 from pydantic import BaseModel
@@ -89,11 +87,8 @@ async def health():
 
 
 def _check_paddleocr() -> bool:
-    try:
-        from paddleocr import PaddleOCR
-        return True
-    except ImportError:
-        return False
+    import importlib.util
+    return importlib.util.find_spec("paddleocr") is not None
 
 
 def _check_tesseract() -> bool:

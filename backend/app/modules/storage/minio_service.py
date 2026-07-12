@@ -4,7 +4,6 @@ S3-compatible object storage for documents
 """
 
 import hashlib
-import io
 from datetime import timedelta
 from typing import BinaryIO, Optional
 

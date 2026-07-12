@@ -4,12 +4,13 @@ IRPF calculations for Brazilian tax system
 """
 
 from decimal import Decimal
-from typing import Dict, List
+from typing import Dict
 
-from sqlalchemy import func, select
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.shared.models.tax import Declaration, TaxEvent, Validation
+from app.modules.tax_engine.validators import IRPFValidator
+from app.shared.models.tax import Declaration, TaxEvent
 from app.shared.models.user import User
 
 
@@ -54,13 +55,16 @@ class TaxCalculator:
         # Sum rendimentos
         total_rendimentos = sum(
             e.valor for e in events 
-            if e.categoria == "rendimento_trabalho"
+            if e.categoria in ("rendimento_trabalho", "rendimento_investimento")
         )
         
         # Sum deducoes
         total_deducoes = sum(
             e.valor for e in events 
-            if e.categoria in ["despesa_medica", "despesa_educacao", "doacao"]
+            if e.categoria in [
+                "despesa_medica", "despesa_educacao", "doacao",
+                "despesa_previdencia", "pensao_paga",
+            ]
         )
         
         # Calculate base de calculo
@@ -69,8 +73,11 @@ class TaxCalculator:
         # Calculate imposto devido
         imposto_devido = TaxCalculator._calculate_imposto_progressivo(base_calculo)
         
-        # Get retencao (IR já retido)
-        total_retencao = Decimal("0")  # TODO: Extract from documents
+        # Get retencao (IR ja retido + DARFs pagos)
+        total_retencao = sum(
+            e.valor for e in events
+            if e.categoria in ("imposto_retencao", "imposto_pago")
+        )
         
         # Calculate restituicao ou imposto a pagar
         if total_retencao > imposto_devido:
@@ -80,6 +87,12 @@ class TaxCalculator:
             restituicao = Decimal("0")
             imposto_pagar = imposto_devido - total_retencao
         
+        eventos_dict = [
+            {"categoria": e.categoria, "valor": e.valor, "competencia": e.competencia}
+            for e in events
+        ]
+        validacoes = IRPFValidator.validar_eventos(eventos_dict, ano_base)
+
         return {
             "total_rendimentos": total_rendimentos,
             "total_deducoes": total_deducoes,
@@ -87,7 +100,8 @@ class TaxCalculator:
             "imposto_devido": imposto_devido,
             "total_retencao": total_retencao,
             "restituicao_estimada": restituicao,
-            "imposto_pagar": imposto_pagar
+            "imposto_pagar": imposto_pagar,
+            "validacoes": [v.to_dict() for v in validacoes],
         }
     
     @staticmethod

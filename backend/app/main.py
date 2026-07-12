@@ -8,6 +8,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.core.config.settings import get_settings
+from app.modules.auth.router import router as auth_router
+from app.modules.users.router import router as users_router
+from app.modules.documents.router import router as documents_router
+from app.modules.tax_engine.router import router as tax_router
+from app.modules.dashboard.router import router as dashboard_router
+from app.modules.ocr.router import router as ocr_router
+from app.modules.ai.router import router as ai_router
 
 settings = get_settings()
 
@@ -55,14 +62,6 @@ async def health_check():
 
 
 # Include routers
-from app.modules.auth.router import router as auth_router
-from app.modules.users.router import router as users_router
-from app.modules.documents.router import router as documents_router
-from app.modules.tax_engine.router import router as tax_router
-from app.modules.dashboard.router import router as dashboard_router
-from app.modules.ocr.router import router as ocr_router
-from app.modules.ai.router import router as ai_router
-
 app.include_router(auth_router, prefix="/auth", tags=["Autenticação"])
 app.include_router(users_router, prefix="/users", tags=["Usuários"])
 app.include_router(documents_router, prefix="/documents", tags=["Documentos"])

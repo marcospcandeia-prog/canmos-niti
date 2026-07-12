@@ -5,7 +5,7 @@ FastAPI endpoints for document management
 
 from typing import List
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database.session import get_db
@@ -37,6 +37,7 @@ router = APIRouter()
     }
 )
 async def upload_document(
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="Arquivo para upload (PDF ou imagem)"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -55,9 +56,16 @@ async def upload_document(
     2. Upload para MinIO
     3. Cálculo de hash SHA256 (deduplicação)
     4. Criação de registro no banco
-    5. Disparo de OCR assíncrono (futuro)
+    5. Disparo de OCR assíncrono automático
     """
     document = await DocumentsService.upload_document(file, current_user, db)
+
+    from app.core.config.settings import get_settings
+    _settings = get_settings()
+    if _settings.APP_ENV != "test":
+        from app.modules.ocr.service import process_document_background
+        background_tasks.add_task(process_document_background, document.id)
+
     return DocumentUploadResponse.model_validate(document)
 
 

@@ -20,19 +20,15 @@ class ConversationCreate(BaseModel):
 
 
 class ConversationResponse(BaseModel):
-    id: int
+    id: str
     titulo: str
     created_at: datetime
     updated_at: datetime
 
-    model_config = {"from_attributes": True}
-
 
 class MessageResponse(BaseModel):
     id: int
-    conversation_id: int
+    conversation_id: str
     role: str
     content: str
     created_at: datetime
-
-    model_config = {"from_attributes": True}

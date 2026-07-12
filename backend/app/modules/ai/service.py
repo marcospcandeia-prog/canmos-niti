@@ -54,6 +54,22 @@ Regras:
 5. Mencione que e sempre bom consultar um contador para casos complexos
 6. Baseie suas respostas na legislacao brasileira vigente"""
 
+SYSTEM_PROMPT_RAG = """Voce e um assistente especializado em imposto de renda brasileiro (IRPF).
+Regras:
+1. Responda sempre em portugues brasileiro
+2. Use linguagem clara e acessivel
+3. Se nao souber a resposta, diga que nao sabe
+4. Nao invente informacoes fiscais
+5. Mencione que e sempre bom consultar um contador para casos complexos
+6. Baseie suas respostas na legislacao brasileira vigente E nos documentos do usuario fornecidos abaixo
+
+Contexto dos documentos do usuario:
+{contexto_documentos}
+
+{contexto_legislacao}
+
+Use os contextos acima para complementar suas respostas sobre os documentos e situacao fiscal do usuario."""
+
 
 class TaxAssistant:
 
@@ -66,7 +82,7 @@ class TaxAssistant:
             self.histories[conversation_id] = []
         return self.histories[conversation_id]
 
-    async def ask(self, mensagem: str, conversation_id: str) -> dict:
+    async def ask(self, mensagem: str, conversation_id: str, user_id: Optional[int] = None) -> dict:
         response = {
             "resposta": "",
             "fontes": [],
@@ -79,7 +95,46 @@ class TaxAssistant:
 
         history = self.get_or_create_history(conversation_id)
 
-        messages = [("system", SYSTEM_PROMPT)]
+        fontes_documentos = []
+        fontes_legislacao = []
+        system_prompt = SYSTEM_PROMPT
+
+        try:
+            from app.modules.ai.legislation_rag import search_legislation, check_legislation_available
+            if check_legislation_available():
+                fontes_legislacao = search_legislation(mensagem, limit=2)
+                logger.info(f"Legislation RAG: found {len(fontes_legislacao)} articles")
+        except Exception as e:
+            logger.warning(f"Legislation RAG search failed: {e}")
+
+        if user_id:
+            try:
+                from app.modules.ai.rag_service import search_similar
+                fontes_documentos = search_similar(mensagem, user_id, limit=2)
+                logger.info(f"Document RAG: found {len(fontes_documentos)} sources for user {user_id}")
+            except Exception as e:
+                logger.warning(f"Document RAG search failed: {e}")
+
+        if fontes_documentos or fontes_legislacao:
+            contexto_parts = []
+
+            if fontes_documentos:
+                contexto_docs = "\n---\n".join([f["text"] for f in fontes_documentos])
+                contexto_parts.append(f"Documentos do usuario:\n{contexto_docs}")
+
+            if fontes_legislacao:
+                contexto_leg = "\n---\n".join([
+                    f"[{f['titulo']}] {f['texto']}" for f in fontes_legislacao
+                ])
+                contexto_parts.append(f"Legislacao relevante:\n{contexto_leg}")
+
+            contexto_completo = "\n\n".join(contexto_parts)
+            system_prompt = SYSTEM_PROMPT_RAG.format(
+                contexto_documentos=contexto_completo,
+                contexto_legislacao="",
+            )
+
+        messages = [("system", system_prompt)]
 
         for h in history[-6:]:
             messages.append((h["role"], h["content"]))
@@ -94,6 +149,14 @@ class TaxAssistant:
             history.append({"role": "assistant", "content": resposta})
 
             response["resposta"] = resposta
+
+            fontes_formatadas = []
+            for f in fontes_documentos:
+                fontes_formatadas.append(f"Documento #{f['document_id']} (score: {f['score']:.2f})")
+            for f in fontes_legislacao:
+                fontes_formatadas.append(f"Legislacao: {f['titulo']} (score: {f['score']:.2f})")
+            response["fontes"] = fontes_formatadas
+
         except Exception as e:
             logger.error(f"LLM invocation error: {e}")
             response["resposta"] = "Desculpe, ocorreu um erro ao processar sua pergunta. Tente novamente."
@@ -105,7 +168,24 @@ class TaxAssistant:
         if not llm_ok:
             self.llm = get_llm()
             llm_ok = self.llm is not None
+
+        qdrant_ok = False
+        legislation_ok = False
+        try:
+            from app.modules.ai.rag_service import get_qdrant_client
+            qdrant_ok = get_qdrant_client() is not None
+        except Exception:
+            pass
+
+        try:
+            from app.modules.ai.legislation_rag import check_legislation_available
+            legislation_ok = check_legislation_available()
+        except Exception:
+            pass
+
         return {
             "llm": llm_ok,
             "model": settings.OLLAMA_MODEL,
+            "rag": qdrant_ok,
+            "legislation": legislation_ok,
         }

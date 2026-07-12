@@ -2,7 +2,6 @@ import hashlib
 import pytest
 from unittest.mock import MagicMock, patch
 from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @pytest.fixture(autouse=True)

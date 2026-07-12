@@ -15,12 +15,15 @@ from app.core.security.jwt import decode_token, verify_token_type
 from app.modules.auth.service import AuthService
 from app.shared.models.user import User
 
-# HTTP Bearer security scheme
-security = HTTPBearer()
+# HTTP Bearer security scheme.
+# auto_error=False so that a missing Authorization header yields our own
+# 401 response instead of FastAPI's default 403, keeping missing and invalid
+# credentials consistent (both -> 401 Unauthorized).
+security = HTTPBearer(auto_error=False)
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials = Depends(security),
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(security),
     db: AsyncSession = Depends(get_db)
 ) -> User:
     """
@@ -46,7 +49,11 @@ async def get_current_user(
         detail="Não foi possível validar as credenciais",
         headers={"WWW-Authenticate": "Bearer"},
     )
-    
+
+    # No Authorization header provided
+    if credentials is None:
+        raise credentials_exception
+
     try:
         # Get token from credentials
         token = credentials.credentials

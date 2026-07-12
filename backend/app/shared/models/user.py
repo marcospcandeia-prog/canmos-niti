@@ -2,7 +2,6 @@
 User and UserProfile Models
 """
 
-from datetime import datetime
 from uuid import uuid4
 
 from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String

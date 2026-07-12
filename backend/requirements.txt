@@ -14,6 +14,7 @@ psycopg2-binary==2.9.9
 # Pydantic
 pydantic==2.9.2
 pydantic-settings==2.5.2
+email-validator==2.2.0
 
 # Security
 python-jose[cryptography]==3.3.0
@@ -25,6 +26,7 @@ minio==7.2.9
 # AI/ML
 langchain==0.3.1
 langchain-community==0.3.1
+langchain-ollama==0.2.0
 ollama==0.3.3
 
 # Vector DB
@@ -38,6 +40,7 @@ Pillow==10.4.0
 python-dotenv==1.0.1
 httpx==0.27.2
 aiofiles==24.1.0
+fpdf2==2.8.2
 
 # Testing
 pytest==8.3.2

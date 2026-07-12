@@ -2,7 +2,8 @@
 Tax Engine Router
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path
+from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -112,3 +113,28 @@ async def create_declaration(
         "created_at": declaration.created_at.isoformat() if declaration.created_at else None,
         "updated_at": declaration.updated_at.isoformat() if declaration.updated_at else None,
     }
+
+
+@router.get(
+    "/declaration/{ano_base}/pdf",
+    summary="Download PDF da Declaracao",
+    description="Gera e baixa PDF da declaracao IRPF"
+)
+async def download_declaration_pdf(
+    ano_base: int = Path(..., ge=2020, description="Ano base (minimo 2020)"),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    from app.modules.tax_engine.pdf_generator import gerar_pdf_declaracao
+
+    pdf_bytes = await gerar_pdf_declaracao(current_user, ano_base, db)
+    if not pdf_bytes:
+        raise HTTPException(status_code=404, detail="Declaracao nao encontrada")
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f"attachment; filename=declaracao_irpf_{ano_base}.pdf"
+        },
+    )

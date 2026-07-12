@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     QDRANT_COLLECTION: str = Field(default="tax_knowledge")
     
     # OCR
+    OCR_API_HOST: str = Field(default="http://ocr-service:8001")
     OCR_ENGINE_PRIMARY: str = Field(default="paddleocr")
     OCR_ENGINE_FALLBACK: str = Field(default="tesseract")
     OCR_CONFIDENCE_THRESHOLD: float = Field(default=0.7)

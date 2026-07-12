@@ -4,7 +4,7 @@ Business logic for document management
 """
 
 from datetime import timedelta
-from typing import BinaryIO, List, Optional
+from typing import List, Optional
 
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, select
@@ -13,7 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.modules.documents.schemas import DocumentStats
 from app.modules.storage.minio_service import get_minio_service
-from app.shared.models.document import Document, OCRResult
+from app.shared.models.document import Document
 from app.shared.models.user import User
 
 

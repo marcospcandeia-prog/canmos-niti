@@ -1,7 +1,7 @@
 import logging
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -35,7 +35,7 @@ async def chat(
     assistant = get_assistant()
     conversation_id = request.conversation_id or str(uuid.uuid4())
 
-    result = await assistant.ask(request.mensagem, conversation_id)
+    result = await assistant.ask(request.mensagem, conversation_id, user_id=current_user.id)
 
     ai_interaction = AIInteraction(
         user_id=current_user.id,
@@ -73,7 +73,7 @@ async def list_conversations(
 
     return [
         ConversationResponse(
-            id=hash(c.conversation_id) % 1000000,
+            id=c.conversation_id,
             titulo=f"Conversa {i + 1}",
             created_at=c.created_at,
             updated_at=c.created_at,
@@ -104,7 +104,7 @@ async def get_conversation_messages(
         messages.append(
             MessageResponse(
                 id=interaction.id * 2 - 1,
-                conversation_id=hash(conversation_id) % 1000000,
+                conversation_id=conversation_id,
                 role="user",
                 content=interaction.pergunta,
                 created_at=interaction.created_at,
@@ -113,7 +113,7 @@ async def get_conversation_messages(
         messages.append(
             MessageResponse(
                 id=interaction.id * 2,
-                conversation_id=hash(conversation_id) % 1000000,
+                conversation_id=conversation_id,
                 role="assistant",
                 content=interaction.resposta,
                 created_at=interaction.created_at,

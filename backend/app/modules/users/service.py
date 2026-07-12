@@ -3,7 +3,7 @@ Users Service
 Business logic for user profile management
 """
 
-from typing import Optional
+from datetime import datetime
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -228,8 +228,102 @@ class UsersService:
         """
         user.status = "inactive"
         await db.commit()
-        
-        # TODO: Implement full LGPD compliance:
-        # - Schedule hard delete after retention period
-        # - Anonymize personal data
-        # - Keep audit logs for legal requirements
+
+    @staticmethod
+    async def export_user_data(user: User, db: AsyncSession) -> dict:
+        stmt = select(User).where(User.id == user.id).options(
+            selectinload(User.profile),
+            selectinload(User.documents),
+            selectinload(User.tax_events),
+            selectinload(User.declarations),
+            selectinload(User.ai_interactions),
+        )
+        result = await db.execute(stmt)
+        u = result.scalar_one()
+
+        profile = {}
+        if u.profile:
+            profile = {
+                "profissao": u.profile.profissao,
+                "estado_civil": u.profile.estado_civil,
+                "possui_dependentes": u.profile.possui_dependentes,
+                "possui_investimentos": u.profile.possui_investimentos,
+            }
+
+        documents = [
+            {
+                "id": d.id,
+                "nome_original": d.nome_original,
+                "tipo": d.tipo,
+                "mime_type": d.mime_type,
+                "status": d.status,
+                "created_at": d.created_at.isoformat() if d.created_at else None,
+            }
+            for d in u.documents
+        ]
+
+        tax_events = [
+            {
+                "id": e.id,
+                "categoria": e.categoria,
+                "subcategoria": e.subcategoria,
+                "valor": float(e.valor),
+                "competencia": e.competencia,
+                "origem": e.origem,
+                "document_id": e.document_id,
+                "created_at": e.created_at.isoformat() if e.created_at else None,
+            }
+            for e in u.tax_events
+        ]
+
+        declarations = [
+            {
+                "id": dec.id,
+                "ano_base": dec.ano_base,
+                "status": dec.status,
+                "restituicao_estimada": float(dec.restituicao_estimada or 0),
+                "imposto_devido": float(dec.imposto_devido or 0),
+                "created_at": dec.created_at.isoformat() if dec.created_at else None,
+            }
+            for dec in u.declarations
+        ]
+
+        ai_interactions = [
+            {
+                "id": ai.id,
+                "conversation_id": ai.conversation_id,
+                "pergunta": ai.pergunta,
+                "resposta": ai.resposta,
+                "modelo_ia": ai.modelo_ia,
+                "created_at": ai.created_at.isoformat() if ai.created_at else None,
+            }
+            for ai in u.ai_interactions
+        ]
+
+        return {
+            "exportado_em": datetime.utcnow().isoformat(),
+            "formato": "CANMOS-NITI v1.0",
+            "dados_pessoais": {
+                "id": u.id,
+                "uuid": str(u.uuid),
+                "nome": u.nome,
+                "cpf": u.cpf,
+                "email": u.email,
+                "telefone": u.telefone,
+                "status": u.status,
+                "lgpd_consent_at": u.lgpd_consent_at.isoformat() if u.lgpd_consent_at else None,
+                "created_at": u.created_at.isoformat() if u.created_at else None,
+                "updated_at": u.updated_at.isoformat() if u.updated_at else None,
+                "perfil": profile,
+            },
+            "documentos": documents,
+            "eventos_fiscais": tax_events,
+            "declaracoes": declarations,
+            "interacoes_ia": ai_interactions,
+            "resumo": {
+                "total_documentos": len(documents),
+                "total_eventos_fiscais": len(tax_events),
+                "total_declaracoes": len(declarations),
+                "total_interacoes_ia": len(ai_interactions),
+            },
+        }

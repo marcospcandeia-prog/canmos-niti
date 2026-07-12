@@ -57,7 +57,7 @@ def check_imports():
             for wrong in wrong_imports:
                 if wrong in content:
                     issues.append(f"{py_file}: {wrong}")
-        except:
+        except Exception:
             pass
     
     if issues:
