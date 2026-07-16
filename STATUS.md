@@ -1,342 +1,103 @@
 # CANMOS-NITI - Status do Projeto
 
-**Data:** 2026-06-04  
-**Versão:** 0.1.0 MVP Foundation  
-**Status:** 🟢 Backend Funcional | 🟡 Frontend Base Criada
+**Data:** 2026-07-16
+**Versão:** 0.2.0 MVP Funcional
+**Status:** 🟢 Backend Completo | 🟢 Frontend Completo | 🟢 Suítes de Teste Verdes
 
 ---
 
 ## 🎯 Progresso Geral
 
-### MVP Foundation: 9 de 11 Fases Completas (82%)
+### MVP: Todas as 11 fases da Fase 1 concluídas + Fase 2 (Testes) concluída
 
-✅ **Completo (7 fases)**
+✅ **Completo**
 - 1.1 Setup Inicial
-- 1.2 Backend Core  
-- 1.3 Módulo Auth
-- 1.4 Módulo Users
-- 1.5 Módulo Storage/Documents
-- 1.7 Módulo Tax Engine
+- 1.2 Backend Core
+- 1.3 Módulo Auth (JWT access + refresh, 401 correto p/ requisições sem token)
+- 1.4 Módulo Users (perfil, senha, stats, export LGPD, exclusão)
+- 1.5 Módulo Storage/Documents (MinIO, dedup SHA256)
+- 1.6 Módulo OCR (PaddleOCR + Tesseract fallback, worker assíncrono, API própria)
+- 1.7 Módulo Tax Engine (calculadora IRPF, 6 parsers, validators, PDF da declaração)
+- 1.8 Módulo IA (Ollama, RAG com Qdrant, RAG de legislação, histórico de conversas)
 - 1.9 Dashboard
+- 1.10 Frontend (todas as páginas, stores Zustand, componentes)
 - 1.11 Auditoria LGPD
-
-🔶 **Parcial (2 fases)**
-- 1.6 Módulo OCR (estrutura criada, engines pendentes)
-- 1.10 Frontend (estrutura Next.js criada, páginas pendentes)
-
-❌ **Pendente (0 fases)**
-- 1.8 Módulo IA (estrutura preparada)
+- 2.x Testes (backend 124 pytest, frontend 94 jest — todos passando)
 
 ---
 
-## 🚀 API REST Funcional
+## 🧪 Qualidade (verificado em 2026-07-16)
 
-### 19 Endpoints Implementados
-
-#### Autenticação (4)
-```
-POST   /auth/register
-POST   /auth/login
-POST   /auth/refresh
-POST   /auth/logout
-```
-
-#### Usuários (5)
-```
-GET    /users/me
-PUT    /users/me
-POST   /users/me/change-password
-GET    /users/me/stats
-DELETE /users/me
-```
-
-#### Documentos (6)
-```
-POST   /documents/upload
-GET    /documents
-GET    /documents/stats
-GET    /documents/{id}
-GET    /documents/{id}/download
-DELETE /documents/{id}
-```
-
-#### Tax Engine (2)
-```
-POST   /tax/calculate/{ano_base}
-POST   /tax/declaration/{ano_base}
-```
-
-#### Dashboard (1)
-```
-GET    /dashboard/summary?ano_base=2025
-```
-
-#### Health (1)
-```
-GET    /health
-```
+| Verificação | Resultado |
+|-------------|-----------|
+| Backend pytest (Python 3.12, SQLite) | ✅ 124/124 |
+| Backend ruff | ✅ limpo |
+| Frontend jest | ✅ 94/94 |
+| Frontend tsc --noEmit | ✅ limpo |
+| Frontend next lint | ✅ sem erros |
+| Frontend build de produção | ✅ 13 rotas |
 
 ---
 
-## 📊 Stack Implementada
+## 📦 Módulos Backend
 
-### Backend
-- ✅ FastAPI 0.115.0
-- ✅ SQLAlchemy 2.0 async
-- ✅ Alembic migrations
-- ✅ Pydantic validation
-- ✅ JWT authentication
-- ✅ bcrypt password hashing
-- ✅ MinIO storage (S3-compatible)
-- ✅ PostgreSQL (Supabase)
+- `auth` — registro, login, refresh, logout
+- `users` — perfil, senha, stats, export de dados (LGPD), exclusão de conta
+- `documents` — upload, listagem, download, stats, deleção
+- `storage` — MinIO S3-compatible
+- `ocr` — engines PaddleOCR/Tesseract, worker, API dedicada (container próprio)
+- `tax_engine` — calculadora IRPF, parsers (informe de rendimentos, recibo
+  médico, comprovante de educação, DARF, investimentos, pensão alimentícia),
+  classificador de documentos, validators, geração de PDF
+- `ai` — chat com Ollama, RAG (Qdrant + embeddings), RAG de legislação,
+  conversas persistidas
+- `dashboard` — resumo tributário e alertas
+- `audit` — middleware LGPD
 
-### Frontend (Base)
-- 🔶 Next.js 14 (estrutura criada)
-- 🔶 TypeScript configured
-- 🔶 Tailwind CSS ready
-- ❌ Pages (pendente implementação)
-- ❌ Components (pendente implementação)
+## 🖥️ Frontend (Next.js 15 + TypeScript)
 
-### Database
-- ✅ 9 tabelas criadas
-- ✅ Índices de performance
-- ✅ Foreign keys com CASCADE
-- ✅ Migration inicial aplicada
-
-### Infraestrutura
-- ✅ Docker Compose (6 containers)
-- ✅ MinIO (storage)
-- ✅ Qdrant (preparado)
-- ✅ Ollama (preparado)
-- ✅ OCR service (container preparado)
+- Páginas: home, login, register, dashboard, chat IA, declarações,
+  upload de documentos, perfil, termos, privacidade
+- Estado: Zustand (auth, dashboard, document, declaration, chat, profile)
+- Componentes: Sidebar, StatCard, Badge, Toast, LoadingSpinner,
+  DocumentDetailModal, AuthProvider
+- Testes: 11 suítes Jest com mock de zustand que reseta stores entre testes
 
 ---
 
-## 🔐 Segurança Implementada
+## 🚀 CI/CD
 
-### Autenticação
-✅ JWT com access (15min) + refresh (7 dias)  
-✅ bcrypt 12 rounds para senhas  
-✅ Token type validation  
-✅ Middleware de autenticação  
-✅ Ownership check em todas rotas protegidas  
-
-### Validações
-✅ CPF único (11 dígitos)  
-✅ Email único  
-✅ MIME type validation (documentos)  
-✅ File size limit (10MB)  
-✅ Hash SHA256 para deduplicação  
-
-### LGPD
-✅ Consentimento obrigatório no registro  
-✅ lgpd_consent_at timestamp  
-✅ Soft delete para contas  
-✅ Audit middleware criado  
-🔶 Logs de auditoria (parcial)  
-❌ Anonimização completa (pendente)  
+- GitHub Actions em `.github/workflows/ci.yml`, disparando na branch `master`
+- Jobs: backend lint (ruff) → backend tests (pytest+cov) e
+  frontend lint (tsc+eslint) → frontend tests → frontend build → deploy
+- Deploy: Render (backend) + Vercel (frontend) via deploy hooks
+  (requer secrets `RENDER_SERVICE_ID`, `RENDER_DEPLOY_KEY`,
+  `VERCEL_DEPLOY_HOOK_ID`)
 
 ---
 
-## 📈 Funcionalidades Implementadas
+## 🔜 Próximos Passos
 
-### Core (Funcionando)
-✅ Registro e login de usuários  
-✅ Gerenciamento de perfil  
-✅ Upload de documentos (PDF, imagens)  
-✅ Storage MinIO com deduplicação  
-✅ Cálculo IRPF básico  
-✅ Dashboard com resumo  
-✅ Estatísticas de uso  
+### Para produção
+1. Configurar os secrets de deploy no GitHub (Render/Vercel)
+2. Provisionar serviços gerenciados: MinIO, Qdrant e Ollama acessíveis
+   pelo backend em produção
+3. Rodar `alembic upgrade head` no Supabase de produção
 
-### Parcial (Estrutura Pronta)
-🔶 OCR extraction (service criado, engines pendentes)  
-🔶 Tax events parsing (calculadora criada, parsers pendentes)  
-🔶 Frontend UI (Next.js configurado, páginas pendentes)  
-
-### Pendente (Próximas Iterações)
-❌ PaddleOCR integration  
-❌ Tesseract OCR fallback  
-❌ Parsing automático de documentos  
-❌ Ollama IA copiloto  
-❌ LangChain integration  
-❌ RAG com legislação  
-❌ Frontend completo (páginas, componentes)  
-❌ Testes automatizados (pytest, jest)  
+### Melhorias
+4. Anonimização completa LGPD
+5. Rate limiting
+6. Pessoa Jurídica (PJ)
+7. Notificações
 
 ---
 
-## 🧪 Como Testar o Sistema
+## 🧰 Ambiente de Desenvolvimento
 
-### 1. Configurar Supabase
-
-Criar projeto free em https://supabase.com e copiar credenciais para `.env`:
-
-```env
-DATABASE_URL=postgresql+asyncpg://postgres:SENHA@db.xyz.supabase.co:5432/postgres
-SUPABASE_URL=https://xyz.supabase.co
-SUPABASE_ANON_KEY=eyJhbGc...
-SUPABASE_SERVICE_ROLE=eyJhbGc...
-JWT_SECRET=$(openssl rand -hex 32)
-```
-
-### 2. Rodar Migrations
-
-```bash
-cd backend
-alembic upgrade head
-```
-
-### 3. Subir Backend
-
-```bash
-cd backend
-uvicorn app.main:app --reload
-```
-
-### 4. Acessar API Docs
-
-http://localhost:8000/docs
-
-### 5. Testar Fluxo Completo
-
-```bash
-# 1. Registrar usuário
-curl -X POST http://localhost:8000/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{
-    "nome": "João Silva",
-    "cpf": "12345678901",
-    "email": "joao@test.com",
-    "senha": "senha123",
-    "lgpd_consent": true
-  }'
-
-# 2. Login
-curl -X POST http://localhost:8000/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"joao@test.com","senha":"senha123"}'
-
-# 3. Copiar access_token e usar:
-TOKEN="seu_token_aqui"
-
-# 4. Ver perfil
-curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:8000/users/me
-
-# 5. Upload documento (usando Swagger UI é mais fácil)
-# Acesse http://localhost:8000/docs
-
-# 6. Ver dashboard
-curl -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:8000/dashboard/summary?ano_base=2025"
-```
+- Python 3.12 (backend/venv) — `venv\Scripts\python -m pytest tests/`
+- Node 20+ (frontend) — `npm test`, `npm run lint`, `npm run build`
+- Docker Compose para MinIO, Qdrant, Ollama e OCR
 
 ---
 
-## 📝 Próximos Passos
-
-### Prioridade Alta (Essencial para MVP)
-1. **Implementar OCR engines** (PaddleOCR + Tesseract)
-2. **Parsers de documentos** (informe de rendimentos, recibos)
-3. **Frontend páginas** (login, dashboard, upload)
-4. **Ollama IA integration** (copiloto básico)
-
-### Prioridade Média (Melhorias)
-5. **Testes automatizados** (pytest backend, jest frontend)
-6. **Validações fiscais** mais completas
-7. **RAG** com legislação da Receita Federal
-8. **Rate limiting** e proteções
-
-### Prioridade Baixa (Futuros)
-9. **Pessoa Jurídica** (PJ)
-10. **Notificações** e alertas
-11. **CI/CD** pipeline
-12. **Exportar dados** (portabilidade LGPD)
-
----
-
-## 🐛 Issues Conhecidas
-
-1. **OCR não funcional** - Engines não integradas (TODO)
-2. **IA não funcional** - Ollama não integrado (TODO)
-3. **Frontend vazio** - Apenas estrutura criada (TODO)
-4. **Testes ausentes** - Sem cobertura de testes (TODO)
-5. **Audit logs parcial** - Middleware criado mas não integrado em todas rotas
-
----
-
-## 📚 Documentação
-
-### Disponível
-- ✅ README.md principal
-- ✅ docs/ROADMAP.md (completo)
-- ✅ docs/ARCHITECTURE.md (decisões técnicas)
-- ✅ QUICKSTART.md (guia setup)
-- ✅ backend/docs/DATABASE_SCHEMA.md
-- ✅ backend/docs/MIGRATIONS.md
-- ✅ backend/docs/AUTH_API.md
-- ✅ backend/docs/USERS_API.md
-- ✅ backend/README.md
-- ✅ Makefile (20+ comandos)
-
-### Pendente
-- ❌ docs/DOCUMENTS_API.md
-- ❌ docs/TAX_ENGINE_API.md
-- ❌ docs/DASHBOARD_API.md
-- ❌ Frontend documentation
-- ❌ Deployment guide
-
----
-
-## 🎓 Lições Aprendidas
-
-### ✅ O Que Funcionou Bem
-1. **Planejamento detalhado** antes de codificar
-2. **Documentação desde o início**
-3. **Modular Monolith** simplificou desenvolvimento
-4. **SQLAlchemy async** + Supabase PostgreSQL
-5. **Pydantic** validation automática
-6. **FastAPI Swagger** UI out-of-the-box
-
-### ⚠️ Atenção Para
-1. **Context length** em conversas longas (criar checkpoints)
-2. **OCR requer container separado** com dependências pesadas
-3. **Ollama precisa GPU** ou modelos muito pequenos
-4. **MinIO init bucket** manual necessário
-5. **Frontend complexidade** subestimada (7 dias estimados)
-
----
-
-## 🤝 Como Contribuir
-
-### Para Desenvolvedores
-
-1. **Clone o repo**
-2. **Configure .env** com Supabase
-3. **Rode migrations**: `alembic upgrade head`
-4. **Inicie backend**: `uvicorn app.main:app --reload`
-5. **Acesse docs**: http://localhost:8000/docs
-
-### Áreas que Precisam de Ajuda
-
-- 🔴 **OCR Integration** (PaddleOCR + Tesseract)
-- 🔴 **Document Parsers** (regex + heurística)
-- 🔴 **Frontend Pages** (Next.js + shadcn/ui)
-- 🟡 **IA Copilot** (Ollama + LangChain)
-- 🟡 **Tests** (pytest + jest)
-- 🟢 **Documentation** (API docs)
-
----
-
-## 📧 Suporte
-
-Para dúvidas ou problemas:
-- Abra uma issue no GitHub
-- Consulte docs/ para documentação
-- Veja backend/docs/ para APIs
-
----
-
-**Última atualização:** 2026-06-04  
-**Próxima revisão:** Após implementação Frontend
+**Última atualização:** 2026-07-16 (suítes verdes, CI corrigida p/ master, push realizado)

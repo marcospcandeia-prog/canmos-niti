@@ -239,19 +239,19 @@ npm test -- --coverage
 
 ### MVP (Fase 1)
 - [x] Setup inicial
-- [ ] Autenticação JWT
-- [ ] Upload documentos
-- [ ] OCR local
-- [ ] Tax Engine básico
-- [ ] Dashboard
-- [ ] IA copiloto
+- [x] Autenticação JWT
+- [x] Upload documentos
+- [x] OCR local
+- [x] Tax Engine básico
+- [x] Dashboard
+- [x] IA copiloto
 
 ### Futuro
-- [ ] Testes automatizados (70% cobertura)
-- [ ] RAG com legislação RFB
+- [x] Testes automatizados (backend 124 pytest, frontend 94 jest)
+- [x] RAG com legislação RFB
+- [x] CI/CD (GitHub Actions → Render/Vercel)
 - [ ] Pessoa Jurídica (PJ)
 - [ ] Notificações
-- [ ] CI/CD
 
 ---
 
