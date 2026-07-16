@@ -97,7 +97,7 @@ jobs:
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          file: backend/coverage.xml
+          files: backend/coverage.xml
           flags: backend
 
   frontend-lint:
@@ -153,7 +153,7 @@ jobs:
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          file: frontend/coverage/lcov.info
+          files: frontend/coverage/lcov.info
           flags: frontend
 
   frontend-build:
@@ -187,11 +187,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy Backend to Render
+        env:
+          RENDER_SERVICE_ID: ${{ secrets.RENDER_SERVICE_ID }}
+          RENDER_DEPLOY_KEY: ${{ secrets.RENDER_DEPLOY_KEY }}
         run: |
-          curl -X POST "https://api.render.com/deploy/srv-\$\{{ secrets.RENDER_SERVICE_ID }}?key=\$\{{ secrets.RENDER_DEPLOY_KEY }}"
+          if [ -z "$RENDER_SERVICE_ID" ] || [ -z "$RENDER_DEPLOY_KEY" ]; then
+            echo "::notice::Secrets RENDER_SERVICE_ID/RENDER_DEPLOY_KEY não configurados — deploy do backend pulado."
+          else
+            curl -fsS -X POST "https://api.render.com/deploy/srv-${RENDER_SERVICE_ID}?key=${RENDER_DEPLOY_KEY}"
+          fi
       - name: Deploy Frontend to Vercel
+        env:
+          VERCEL_DEPLOY_HOOK_ID: ${{ secrets.VERCEL_DEPLOY_HOOK_ID }}
         run: |
-          curl -X POST "https://api.vercel.com/v1/integrations/deploy/\$\{{ secrets.VERCEL_DEPLOY_HOOK_ID }}"
+          if [ -z "$VERCEL_DEPLOY_HOOK_ID" ]; then
+            echo "::notice::Secret VERCEL_DEPLOY_HOOK_ID não configurado — deploy do frontend pulado."
+          else
+            curl -fsS -X POST "https://api.vercel.com/v1/integrations/deploy/${VERCEL_DEPLOY_HOOK_ID}"
+          fi
 
   # Required GitHub Secrets:
   # - RENDER_SERVICE_ID: Render service ID for backend
